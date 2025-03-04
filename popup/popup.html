@@ -1,0 +1,30 @@
+<!-- popup/popup.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>English to Bangla Translator</h1>
+    <div class="form-group">
+      <label for="apiKey">Gemini API Key:</label>
+      <input type="text" id="apiKey" placeholder="Enter your Gemini API Key">
+      <button id="saveKey">Save</button>
+    </div>
+    <div class="status">
+      <p id="statusMessage">Status: Ready</p>
+    </div>
+    <div class="instructions">
+      <h2>How to use:</h2>
+      <ol>
+        <li>Enter your Gemini API key above</li>
+        <li>Select any English text on a webpage</li>
+        <li>The translation will appear in a small popup near the selected text</li>
+      </ol>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
