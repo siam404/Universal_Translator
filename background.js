@@ -38,7 +38,7 @@ browser.contextMenus.onClicked.addListener(function(info, tab) {
       translateText(textToTranslate, tab.id);
     } else if (!geminiApiKey) {
       console.error("No API key available");
-      browser.tabs.sendMessage(tab.id, {
+      notifyAllFrames(tab.id, {
         action: "showError",
         error: "API key not found. Please set your Gemini API key in the extension popup."
       });
@@ -50,6 +50,12 @@ browser.contextMenus.onClicked.addListener(function(info, tab) {
 browser.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   if (message.action === "translateSelection" && message.text) {
     console.log("Translation requested from content script:", message.text);
+    
+    if (!sender.tab) {
+      console.error("Sender tab information missing");
+      return true;
+    }
+    
     translateText(message.text, sender.tab.id);
   }
   return true;
@@ -59,6 +65,14 @@ browser.runtime.onMessage.addListener(function(message, sender, sendResponse) {
 function translateText(text, tabId) {
   console.log("Translating text:", text);
   console.log("Using API key:", geminiApiKey ? "API key exists" : "No API key");
+  
+  if (!geminiApiKey) {
+    notifyAllFrames(tabId, {
+      action: "showError",
+      error: "API key not found. Please set your Gemini API key in the extension popup."
+    });
+    return;
+  }
   
   const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
   
@@ -107,15 +121,15 @@ function translateText(text, tabId) {
       
       console.log("Extracted translation:", translatedText);
       
-      // Send translation to content script
-      browser.tabs.sendMessage(tabId, {
+      // Send translation to all frames in the tab
+      notifyAllFrames(tabId, {
         action: "showTranslation",
         original: text,
         translation: translatedText
       });
     } else {
       console.error("Unexpected API response structure:", data);
-      browser.tabs.sendMessage(tabId, {
+      notifyAllFrames(tabId, {
         action: "showError",
         error: "Translation failed. API response format was unexpected."
       });
@@ -123,9 +137,42 @@ function translateText(text, tabId) {
   })
   .catch(error => {
     console.error("Translation error:", error);
-    browser.tabs.sendMessage(tabId, {
+    notifyAllFrames(tabId, {
       action: "showError",
       error: "API error: " + error.message
+    });
+  });
+}
+
+// Function to notify all frames in a tab with a message
+function notifyAllFrames(tabId, message) {
+  // First, try sending to all frames
+  browser.tabs.sendMessage(tabId, message, { frameId: 0 }).catch(error => {
+    console.log("Error sending to main frame:", error);
+  });
+  
+  // Also try to query for all frames and send to each one
+  browser.webNavigation.getAllFrames({ tabId: tabId }).then(frames => {
+    if (frames && frames.length > 0) {
+      console.log(`Found ${frames.length} frames in tab ${tabId}`);
+      frames.forEach(frame => {
+        console.log(`Sending message to frame ${frame.frameId}`);
+        browser.tabs.sendMessage(tabId, message, { frameId: frame.frameId }).catch(error => {
+          console.log(`Error sending to frame ${frame.frameId}:`, error);
+        });
+      });
+    } else {
+      console.log("No frames found in tab, trying regular send");
+      // Fallback to regular sendMessage if getAllFrames fails
+      browser.tabs.sendMessage(tabId, message).catch(error => {
+        console.error("Error sending message to tab:", error);
+      });
+    }
+  }).catch(error => {
+    console.error("Error querying frames:", error);
+    // Fallback to regular sendMessage if getAllFrames fails
+    browser.tabs.sendMessage(tabId, message).catch(err => {
+      console.error("Fallback error sending message to tab:", err);
     });
   });
 }

@@ -1,23 +1,162 @@
 // content-script.js
 let translationPopup = null;
 let autoRemoveTimeout = null;
+let isSelectionInsidePopup = false;
+let contextMenuTriggered = false;
 
-// Listen for text selection
-document.addEventListener('mouseup', function(event) {
-  const selection = window.getSelection();
-  const selectedText = selection.toString().trim();
+// Initialize the extension
+function initialize() {
+  console.log("Initializing English to Bangla Translator in frame:", window.location.href);
   
-  if (selectedText.length > 0) {
-    console.log("Text selected:", selectedText);
-    // Send the selected text to the background script for translation
-    browser.runtime.sendMessage({
-      action: "translateSelection",
-      text: selectedText
-    }, response => {
-      console.log("Message sent to background script, response:", response);
-    });
+  // Create a root element for our popups that will be outside any shadow DOM
+  createRootElement();
+  
+  // Setup selection listeners
+  setupSelectionListeners();
+}
+
+// Create a persistent root element for our popups
+function createRootElement() {
+  // Check if we already have a root element
+  if (document.getElementById('translator-root')) {
+    return;
   }
-});
+  
+  const root = document.createElement('div');
+  root.id = 'translator-root';
+  root.style.position = 'fixed';
+  root.style.zIndex = '2147483647';
+  root.style.pointerEvents = 'none'; // Initially allow events to pass through
+  document.body.appendChild(root);
+  console.log("Created translator root element");
+}
+
+// Set up all selection-related event listeners
+function setupSelectionListeners() {
+  // Listen for mouseup events to detect text selection
+  document.addEventListener('mouseup', handleMouseUp, true);
+  
+  // Track mousedown to detect where selection starts
+  document.addEventListener('mousedown', handleMouseDown, true);
+  
+  // Handle selection changes
+  document.addEventListener('selectionchange', handleSelectionChange, false);
+  
+  // Handle page click outside popup
+  document.addEventListener('mousedown', handleOutsideClick, false);
+  
+  // Handle window resize to ensure popup stays within viewport
+  window.addEventListener('resize', handleResize, false);
+  
+  // Handle keyboard shortcut (Alt+T) for translation
+  document.addEventListener('keydown', handleKeyboardShortcut, false);
+}
+
+// Main handler for mouse up events (potential selections)
+function handleMouseUp(event) {
+  // Skip if the event came from within our popup
+  if (translationPopup && isEventInsidePopup(event)) {
+    console.log("Mouse up inside popup - ignoring");
+    return;
+  }
+  
+  // Short delay to ensure selection is complete
+  setTimeout(() => {
+    if (contextMenuTriggered) {
+      // If context menu was used, don't auto-translate
+      contextMenuTriggered = false;
+      return;
+    }
+    
+    const selectedText = getSelectedText();
+    if (selectedText && selectedText.length > 0 && !isSelectionInsidePopup) {
+      console.log("Text selected:", selectedText);
+      // Send the selected text to the background script for translation
+      browser.runtime.sendMessage({
+        action: "translateSelection",
+        text: selectedText
+      }).catch(err => {
+        console.error("Error sending message to background script:", err);
+      });
+    }
+  }, 200);
+}
+
+// Handle mouse down events to track selection start
+function handleMouseDown(event) {
+  isSelectionInsidePopup = translationPopup && isEventInsidePopup(event);
+  
+  // If right-click, this might be a context menu operation
+  if (event.button === 2) {
+    contextMenuTriggered = true;
+  } else {
+    contextMenuTriggered = false;
+  }
+}
+
+// Handle selection change events for keyboard selections
+function handleSelectionChange() {
+  // We mainly handle selection in mouseup, but this helps with keyboard selection
+  // We don't auto-translate here to avoid too many simultaneous requests
+}
+
+// Keyboard shortcut handler (Alt+T)
+function handleKeyboardShortcut(event) {
+  // Alt+T shortcut for translation
+  if (event.altKey && event.key === 't') {
+    const selectedText = getSelectedText();
+    if (selectedText && selectedText.length > 0) {
+      console.log("Keyboard shortcut triggered translation for:", selectedText);
+      browser.runtime.sendMessage({
+        action: "translateSelection",
+        text: selectedText
+      }).catch(err => {
+        console.error("Error sending message to background script:", err);
+      });
+    }
+  }
+}
+
+// Get selected text from anywhere in the document
+function getSelectedText() {
+  let selectedText = '';
+  
+  // Standard selection
+  const selection = window.getSelection();
+  if (selection) {
+    selectedText = selection.toString().trim();
+  }
+  
+  // If no text is selected or selection is inside our popup, return empty
+  if (selectedText.length === 0 || isSelectionInsidePopup) {
+    return '';
+  }
+  
+  return selectedText;
+}
+
+// Check if an event occurred inside our popup
+function isEventInsidePopup(event) {
+  if (!translationPopup) return false;
+  
+  // Check if the event target is our popup or a child of it
+  return translationPopup.contains(event.target) || 
+         event.target.closest('[data-translator-popup="true"]');
+}
+
+// Handle clicks outside the popup
+function handleOutsideClick(event) {
+  if (translationPopup && !isEventInsidePopup(event)) {
+    removeExistingPopup();
+  }
+}
+
+// Handle window resize
+function handleResize() {
+  if (translationPopup) {
+    ensurePopupVisibility(translationPopup);
+  }
+}
 
 // Listen for messages from background script
 browser.runtime.onMessage.addListener(function(message, sender, sendResponse) {
@@ -41,13 +180,17 @@ function showTranslationPopup(original, translation) {
   // Remove existing popup if there is one
   removeExistingPopup();
   
+  // Get the root element
+  const root = document.getElementById('translator-root') || document.body;
+  
   // Create popup element
   translationPopup = document.createElement('div');
   translationPopup.className = 'en-bn-translation-popup';
+  translationPopup.setAttribute('data-translator-popup', 'true');
   
   // Style the popup with modern dark theme
   translationPopup.style.position = 'fixed';
-  translationPopup.style.zIndex = '10000';
+  translationPopup.style.zIndex = '2147483647'; // Maximum z-index to ensure visibility
   translationPopup.style.backgroundColor = '#1e1e1e';  // Dark background
   translationPopup.style.border = '1px solid #333';
   translationPopup.style.borderRadius = '10px';
@@ -60,6 +203,8 @@ function showTranslationPopup(original, translation) {
   translationPopup.style.right = '20px';
   translationPopup.style.transition = 'all 0.2s ease';
   translationPopup.style.overflow = 'hidden';  // Prevent content overflow
+  translationPopup.style.color = '#fff';  // Base text color
+  translationPopup.style.pointerEvents = 'auto';  // Make sure it can receive events
   
   // Create header with title and close button
   const popupHeader = document.createElement('div');
@@ -126,14 +271,60 @@ function showTranslationPopup(original, translation) {
   translationElement.style.overflowY = 'auto';  // Add scrollbar for overflow
   translationElement.textContent = translation;
   
+  // Add copy button for translation
+  const copyButtonContainer = document.createElement('div');
+  copyButtonContainer.style.textAlign = 'right';
+  copyButtonContainer.style.marginTop = '8px';
+  
+  const copyButton = document.createElement('button');
+  copyButton.textContent = 'Copy';
+  copyButton.style.backgroundColor = '#444';
+  copyButton.style.color = '#fff';
+  copyButton.style.border = 'none';
+  copyButton.style.borderRadius = '4px';
+  copyButton.style.padding = '4px 8px';
+  copyButton.style.cursor = 'pointer';
+  copyButton.style.fontSize = '12px';
+  copyButton.style.transition = 'background-color 0.2s';
+  
+  copyButton.onmouseover = function() {
+    this.style.backgroundColor = '#555';
+  };
+  
+  copyButton.onmouseout = function() {
+    this.style.backgroundColor = '#444';
+  };
+  
+  copyButton.onclick = function() {
+    navigator.clipboard.writeText(translation).then(() => {
+      const originalText = this.textContent;
+      this.textContent = 'Copied!';
+      this.style.backgroundColor = '#2a6b4a';
+      setTimeout(() => {
+        this.textContent = originalText;
+        this.style.backgroundColor = '#444';
+      }, 1500);
+    }).catch(err => {
+      console.error('Failed to copy text: ', err);
+    });
+  };
+  
+  copyButtonContainer.appendChild(copyButton);
+  
   // Assemble popup
   translationPopup.appendChild(popupHeader);
   translationPopup.appendChild(originalElement);
   translationPopup.appendChild(translationElement);
+  translationPopup.appendChild(copyButtonContainer);
   
-  // Add to document
-  document.body.appendChild(translationPopup);
+  // Add to the root element or document body
+  root.appendChild(translationPopup);
   console.log("Translation popup added to document");
+  
+  // Enable pointer events for the root during popup display
+  if (root.id === 'translator-root') {
+    root.style.pointerEvents = 'auto';
+  }
   
   // Ensure popup is fully visible within the viewport
   ensurePopupVisibility(translationPopup);
@@ -155,11 +346,12 @@ function ensurePopupVisibility(popup) {
   // Check if popup extends beyond right edge
   if (popupRect.right > viewportWidth) {
     popup.style.right = '20px';
+    popup.style.left = 'auto';
   }
   
   // Check if popup extends beyond bottom edge
   if (popupRect.bottom > viewportHeight) {
-    popup.style.top = (window.scrollY + viewportHeight - popupRect.height - 20) + 'px';
+    popup.style.top = Math.max((window.scrollY + viewportHeight - popupRect.height - 20), window.scrollY) + 'px';
   }
   
   // Check if popup extends beyond top edge
@@ -174,13 +366,17 @@ function showErrorPopup(errorMessage) {
   // Remove existing popup if there is one
   removeExistingPopup();
   
+  // Get the root element
+  const root = document.getElementById('translator-root') || document.body;
+  
   // Create popup element
   translationPopup = document.createElement('div');
   translationPopup.className = 'en-bn-translation-error';
+  translationPopup.setAttribute('data-translator-popup', 'true');
   
   // Style the popup with modern dark theme
   translationPopup.style.position = 'fixed';
-  translationPopup.style.zIndex = '10000';
+  translationPopup.style.zIndex = '2147483647'; // Maximum z-index to ensure visibility
   translationPopup.style.backgroundColor = '#1e1e1e';  // Dark background
   translationPopup.style.border = '1px solid #ff4444';  // Red border for error
   translationPopup.style.borderRadius = '10px';
@@ -191,6 +387,8 @@ function showErrorPopup(errorMessage) {
   translationPopup.style.top = (window.scrollY + 100) + 'px';
   translationPopup.style.right = '20px';
   translationPopup.style.wordWrap = 'break-word';  // Enable word wrapping
+  translationPopup.style.color = '#fff';  // Base text color
+  translationPopup.style.pointerEvents = 'auto';  // Make sure it can receive events
   
   // Create header with title and close button
   const popupHeader = document.createElement('div');
@@ -228,9 +426,14 @@ function showErrorPopup(errorMessage) {
   translationPopup.appendChild(popupHeader);
   translationPopup.appendChild(errorElement);
   
-  // Add to document
-  document.body.appendChild(translationPopup);
+  // Add to the root element or document body
+  root.appendChild(translationPopup);
   console.log("Error popup added to document");
+  
+  // Enable pointer events for the root during popup display
+  if (root.id === 'translator-root') {
+    root.style.pointerEvents = 'auto';
+  }
   
   // Ensure popup is fully visible within the viewport
   ensurePopupVisibility(translationPopup);
@@ -277,9 +480,9 @@ function startAutoRemoveTimer() {
   // Set new timer
   autoRemoveTimeout = setTimeout(function() {
     removeExistingPopup();
-  }, 3000); // 3 seconds
+  }, 5000); // 5 seconds
   
-  console.log("Auto-remove timer started - popup will disappear in 3 seconds");
+  console.log("Auto-remove timer started - popup will disappear in 5 seconds");
 }
 
 // Function to remove existing popup
@@ -288,6 +491,12 @@ function removeExistingPopup() {
     translationPopup.parentNode.removeChild(translationPopup);
     translationPopup = null;
     console.log("Popup removed");
+    
+    // Disable pointer events for the root when no popup is displayed
+    const root = document.getElementById('translator-root');
+    if (root) {
+      root.style.pointerEvents = 'none';
+    }
   }
   
   // Clear any existing timer
@@ -297,18 +506,22 @@ function removeExistingPopup() {
   }
 }
 
-// Handle page click outside popup
-document.addEventListener('mousedown', function(event) {
-  if (translationPopup && !translationPopup.contains(event.target)) {
-    removeExistingPopup();
-  }
-});
+// Initialize once the DOM is loaded
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initialize);
+} else {
+  // DOM already loaded, initialize immediately
+  initialize();
+}
 
-// Handle window resize to ensure popup stays within viewport
-window.addEventListener('resize', function() {
-  if (translationPopup) {
-    ensurePopupVisibility(translationPopup);
+// For websites that dynamically load content (like Facebook, YouTube)
+// Re-check periodically if our script is working
+setInterval(() => {
+  // If our translator root doesn't exist, we need to re-initialize
+  if (!document.getElementById('translator-root') && document.body) {
+    console.log("Re-initializing translator due to DOM changes");
+    initialize();
   }
-});
+}, 3000);
 
-console.log("English to Bangla Translator content script loaded");
+console.log("English to Bangla Translator content script loaded in frame:", window.location.href);
