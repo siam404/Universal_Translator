@@ -6,7 +6,7 @@ let contextMenuTriggered = false;
 
 // Initialize the extension
 function initialize() {
-  console.log("Initializing English to Bangla Translator in frame:", window.location.href);
+  console.log("Initializing Enhanced English to Bangla Translator in frame:", window.location.href);
   
   // Create a root element for our popups that will be outside any shadow DOM
   createRootElement();
@@ -166,6 +166,10 @@ browser.runtime.onMessage.addListener(function(message, sender, sendResponse) {
     console.log("Showing translation:", message.translation);
     showTranslationPopup(message.original, message.translation);
     sendResponse({status: "translation shown"});
+  } else if (message.action === "showEnhancedTranslation") {
+    console.log("Showing enhanced translation:", message);
+    showEnhancedTranslationPopup(message.original, message.result, message.features);
+    sendResponse({status: "enhanced translation shown"});
   } else if (message.action === "showError") {
     console.log("Showing error:", message.error);
     showErrorPopup(message.error);
@@ -174,9 +178,322 @@ browser.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   return true;
 });
 
-// Function to show translation popup
+// Function to show enhanced translation popup with meanings, synonyms, examples
+function showEnhancedTranslationPopup(original, result, features) {
+  console.log("Creating enhanced translation popup");
+  // Remove existing popup if there is one
+  removeExistingPopup();
+  
+  // Get the root element
+  const root = document.getElementById('translator-root') || document.body;
+  
+  // Create popup element
+  translationPopup = document.createElement('div');
+  translationPopup.className = 'en-bn-translation-popup';
+  translationPopup.setAttribute('data-translator-popup', 'true');
+  
+  // Style the popup with modern dark theme
+  translationPopup.style.position = 'fixed';
+  translationPopup.style.zIndex = '2147483647'; // Maximum z-index to ensure visibility
+  translationPopup.style.backgroundColor = '#1e1e1e';  // Dark background
+  translationPopup.style.border = '1px solid #333';
+  translationPopup.style.borderRadius = '10px';
+  translationPopup.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.3)';
+  translationPopup.style.padding = '16px';
+  translationPopup.style.maxWidth = '400px';
+  translationPopup.style.width = 'auto';  // Allow responsive sizing
+  translationPopup.style.fontSize = '14px';
+  translationPopup.style.top = (window.scrollY + 100) + 'px';
+  translationPopup.style.right = '20px';
+  translationPopup.style.transition = 'all 0.2s ease';
+  translationPopup.style.overflow = 'auto';  // Add scrolling for long content
+  translationPopup.style.maxHeight = '80vh';  // Limit height to 80% of viewport
+  translationPopup.style.color = '#fff';  // Base text color
+  translationPopup.style.pointerEvents = 'auto';  // Make sure it can receive events
+  
+  // Create header with title and close button
+  const popupHeader = document.createElement('div');
+  popupHeader.style.display = 'flex';
+  popupHeader.style.justifyContent = 'space-between';
+  popupHeader.style.alignItems = 'center';
+  popupHeader.style.marginBottom = '12px';
+  popupHeader.style.position = 'sticky';
+  popupHeader.style.top = '0';
+  popupHeader.style.backgroundColor = '#1e1e1e';
+  popupHeader.style.padding = '0 0 10px 0';
+  popupHeader.style.borderBottom = '1px solid #333';
+  
+  const popupTitle = document.createElement('div');
+  popupTitle.textContent = 'English to Bangla';
+  popupTitle.style.fontWeight = 'bold';
+  popupTitle.style.color = '#fff';  // White text
+  popupTitle.style.fontSize = '16px';
+  
+  // Create close button
+  const closeButton = document.createElement('button');
+  closeButton.textContent = '✕';
+  closeButton.style.border = 'none';
+  closeButton.style.background = 'none';
+  closeButton.style.cursor = 'pointer';
+  closeButton.style.fontSize = '16px';
+  closeButton.style.color = '#aaa';  // Light gray
+  closeButton.style.padding = '0 5px';
+  closeButton.style.transition = 'color 0.2s ease';
+  closeButton.onclick = removeExistingPopup;
+  
+  // Add hover effect to close button
+  closeButton.onmouseover = function() {
+    this.style.color = '#fff';
+  };
+  closeButton.onmouseout = function() {
+    this.style.color = '#aaa';
+  };
+  
+  popupHeader.appendChild(popupTitle);
+  popupHeader.appendChild(closeButton);
+  
+  // Main content container
+  const contentContainer = document.createElement('div');
+  
+  // Create original text element
+  const originalElement = document.createElement('div');
+  originalElement.style.marginBottom = '12px';
+  originalElement.style.color = '#ccc';  // Light gray text
+  originalElement.style.padding = '10px';
+  originalElement.style.backgroundColor = '#2a2a2a';  // Slightly lighter background
+  originalElement.style.border = '1px solid #444';
+  originalElement.style.borderRadius = '6px';
+  originalElement.style.wordWrap = 'break-word';  // Enable word wrapping
+  originalElement.style.overflowWrap = 'break-word';  // Handle long words
+  originalElement.style.maxHeight = '100px';  // Limit height for very long text
+  originalElement.style.overflowY = 'auto';  // Add scrollbar for overflow
+  originalElement.textContent = original;
+  
+  // Create translation section
+  const translationSection = document.createElement('div');
+  translationSection.style.marginBottom = '16px';
+  
+  const translationHeader = document.createElement('div');
+  translationHeader.style.display = 'flex';
+  translationHeader.style.justifyContent = 'space-between';
+  translationHeader.style.alignItems = 'center';
+  translationHeader.style.marginBottom = '8px';
+  
+  const translationLabel = document.createElement('div');
+  translationLabel.textContent = 'Translation';
+  translationLabel.style.fontWeight = 'bold';
+  translationLabel.style.color = '#66d9ff';  // Light blue
+  translationLabel.style.fontSize = '14px';
+  
+  translationHeader.appendChild(translationLabel);
+  
+  const translationElement = document.createElement('div');
+  translationElement.style.fontWeight = 'bold';
+  translationElement.style.color = '#fff'; // White for translation
+  translationElement.style.padding = '10px';
+  translationElement.style.backgroundColor = '#2a2a2a';
+  translationElement.style.border = '1px solid #444';
+  translationElement.style.borderRadius = '6px';
+  translationElement.style.fontSize = '16px';  // Slightly larger font for Bangla
+  translationElement.style.wordWrap = 'break-word';  // Enable word wrapping
+  translationElement.style.overflowWrap = 'break-word';  // Handle long words
+  translationElement.textContent = result.translation;
+  
+  // Add copy button for translation
+  const copyButtonContainer = document.createElement('div');
+  copyButtonContainer.style.textAlign = 'right';
+  copyButtonContainer.style.marginTop = '8px';
+  
+  const copyButton = document.createElement('button');
+  copyButton.textContent = 'Copy';
+  copyButton.style.backgroundColor = '#444';
+  copyButton.style.color = '#fff';
+  copyButton.style.border = 'none';
+  copyButton.style.borderRadius = '4px';
+  copyButton.style.padding = '4px 8px';
+  copyButton.style.cursor = 'pointer';
+  copyButton.style.fontSize = '12px';
+  copyButton.style.transition = 'background-color 0.2s';
+  
+  copyButton.onmouseover = function() {
+    this.style.backgroundColor = '#555';
+  };
+  
+  copyButton.onmouseout = function() {
+    this.style.backgroundColor = '#444';
+  };
+  
+  copyButton.onclick = function() {
+    navigator.clipboard.writeText(result.translation).then(() => {
+      const originalText = this.textContent;
+      this.textContent = 'Copied!';
+      this.style.backgroundColor = '#2a6b4a';
+      setTimeout(() => {
+        this.textContent = originalText;
+        this.style.backgroundColor = '#444';
+      }, 1500);
+    }).catch(err => {
+      console.error('Failed to copy text: ', err);
+    });
+  };
+  
+  copyButtonContainer.appendChild(copyButton);
+  
+  translationSection.appendChild(translationHeader);
+  translationSection.appendChild(translationElement);
+  translationSection.appendChild(copyButtonContainer);
+  
+  // Create meanings section if enabled and available
+  let meaningsSection = null;
+  if (features.showMeanings && result.meanings) {
+    meaningsSection = createDictionarySection(
+      'Meanings', 
+      result.meanings, 
+      '#66d9ff', // Light blue color
+      (word, meaning) => meaning // Display format: just the meaning
+    );
+  }
+  
+  // Create synonyms section if enabled and available
+  let synonymsSection = null;
+  if (features.showSynonyms && result.synonyms) {
+    synonymsSection = createDictionarySection(
+      'Synonyms', 
+      result.synonyms, 
+      '#66ffb2', // Light green color
+      (word, synonyms) => Array.isArray(synonyms) ? synonyms.join(', ') : synonyms // Join array with commas
+    );
+  }
+  
+  // Create examples section if enabled and available
+  let examplesSection = null;
+  if (features.showExamples && result.examples) {
+    examplesSection = createDictionarySection(
+      'Examples', 
+      result.examples, 
+      '#ff9966', // Light orange color
+      (word, examples) => {
+        if (!Array.isArray(examples)) return examples;
+        
+        // Create bullet points for multiple examples
+        const examplesList = document.createElement('ul');
+        examplesList.style.margin = '5px 0 0 20px';
+        examplesList.style.padding = '0';
+        
+        examples.forEach(example => {
+          const item = document.createElement('li');
+          item.textContent = example;
+          item.style.marginBottom = '4px';
+          examplesList.appendChild(item);
+        });
+        
+        return examplesList;
+      },
+      true // Process HTML elements
+    );
+  }
+  
+  // Add sections to content container
+  contentContainer.appendChild(originalElement);
+  contentContainer.appendChild(translationSection);
+  if (meaningsSection) contentContainer.appendChild(meaningsSection);
+  if (synonymsSection) contentContainer.appendChild(synonymsSection);
+  if (examplesSection) contentContainer.appendChild(examplesSection);
+  
+  // Assemble popup
+  translationPopup.appendChild(popupHeader);
+  translationPopup.appendChild(contentContainer);
+  
+  // Add to the root element or document body
+  root.appendChild(translationPopup);
+  console.log("Enhanced translation popup added to document");
+  
+  // Enable pointer events for the root during popup display
+  if (root.id === 'translator-root') {
+    root.style.pointerEvents = 'auto';
+  }
+  
+  // Ensure popup is fully visible within the viewport
+  ensurePopupVisibility(translationPopup);
+  
+  // Set up hover behavior
+  setupPopupHoverBehavior(translationPopup);
+  
+  // Start auto-remove timer (longer for enhanced popup since there's more content)
+  startAutoRemoveTimer(10000); // 10 seconds
+}
+
+// Helper function to create dictionary sections (meanings, synonyms, examples)
+function createDictionarySection(title, dataObj, titleColor, formatFn, processHTML = false) {
+  // Create section container
+  const section = document.createElement('div');
+  section.style.marginBottom = '16px';
+  
+  // Create section header
+  const header = document.createElement('div');
+  header.textContent = title;
+  header.style.fontWeight = 'bold';
+  header.style.color = titleColor;
+  header.style.marginBottom = '8px';
+  header.style.fontSize = '14px';
+  
+  section.appendChild(header);
+  
+  // Create content container
+  const content = document.createElement('div');
+  content.style.backgroundColor = '#2a2a2a';
+  content.style.border = '1px solid #444';
+  content.style.borderRadius = '6px';
+  content.style.padding = '10px';
+  
+  // Process and add each item
+  const entries = Object.entries(dataObj);
+  if (entries.length === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.textContent = 'No data available';
+    emptyMsg.style.fontStyle = 'italic';
+    emptyMsg.style.color = '#888';
+    content.appendChild(emptyMsg);
+  } else {
+    entries.forEach(([word, data], index) => {
+      const item = document.createElement('div');
+      item.style.marginBottom = index < entries.length - 1 ? '8px' : '0';
+      
+      const wordEl = document.createElement('span');
+      wordEl.textContent = word;
+      wordEl.style.fontWeight = 'bold';
+      wordEl.style.color = '#fff';
+      
+      const separator = document.createElement('span');
+      separator.textContent = ': ';
+      separator.style.color = '#888';
+      
+      item.appendChild(wordEl);
+      item.appendChild(separator);
+      
+      // Format the data based on the provided function
+      const formattedData = formatFn(word, data);
+      
+      if (processHTML && formattedData instanceof HTMLElement) {
+        item.appendChild(formattedData);
+      } else {
+        const dataEl = document.createElement('span');
+        dataEl.textContent = formattedData;
+        dataEl.style.color = '#ddd';
+        item.appendChild(dataEl);
+      }
+      
+      content.appendChild(item);
+    });
+  }
+  
+  section.appendChild(content);
+  return section;
+}
+
+// Function to show basic translation popup (fallback)
 function showTranslationPopup(original, translation) {
-  console.log("Creating translation popup");
+  console.log("Creating basic translation popup");
   // Remove existing popup if there is one
   removeExistingPopup();
   
@@ -425,103 +742,202 @@ function showErrorPopup(errorMessage) {
   // Assemble popup
   translationPopup.appendChild(popupHeader);
   translationPopup.appendChild(errorElement);
+
   
   // Add to the root element or document body
+
   root.appendChild(translationPopup);
+
   console.log("Error popup added to document");
+
   
+
   // Enable pointer events for the root during popup display
+
   if (root.id === 'translator-root') {
+
     root.style.pointerEvents = 'auto';
+
   }
+
   
+
   // Ensure popup is fully visible within the viewport
+
   ensurePopupVisibility(translationPopup);
+
   
+
   // Set up hover behavior
+
   setupPopupHoverBehavior(translationPopup);
+
   
+
   // Start auto-remove timer
+
   startAutoRemoveTimer();
+
 }
+
+
 
 // Function to setup hover behavior
+
 function setupPopupHoverBehavior(popup) {
+
   popup.addEventListener('mouseenter', function() {
+
     console.log("Mouse entered popup - canceling auto-remove");
+
     // Cancel auto-remove when mouse enters popup
+
     if (autoRemoveTimeout) {
+
       clearTimeout(autoRemoveTimeout);
+
       autoRemoveTimeout = null;
+
     }
+
     
+
     // Add subtle highlight effect
+
     popup.style.boxShadow = '0 6px 25px rgba(102, 217, 255, 0.2)';
+
   });
+
   
+
   popup.addEventListener('mouseleave', function() {
+
     console.log("Mouse left popup - starting auto-remove timer");
+
     // Start a fresh auto-remove timer when mouse leaves popup
+
     startAutoRemoveTimer();
+
     
+
     // Remove highlight effect
+
     popup.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.3)';
+
   });
+
 }
+
+
 
 // Function to start auto-remove timer
+
 function startAutoRemoveTimer() {
+
   // Clear any existing timer first
+
   if (autoRemoveTimeout) {
+
     clearTimeout(autoRemoveTimeout);
+
     autoRemoveTimeout = null;
+
   }
+
   
+
   // Set new timer
+
   autoRemoveTimeout = setTimeout(function() {
+
     removeExistingPopup();
+
   }, 5000); // 5 seconds
+
   
+
   console.log("Auto-remove timer started - popup will disappear in 5 seconds");
+
 }
+
+
 
 // Function to remove existing popup
+
 function removeExistingPopup() {
+
   if (translationPopup && translationPopup.parentNode) {
+
     translationPopup.parentNode.removeChild(translationPopup);
+
     translationPopup = null;
+
     console.log("Popup removed");
+
     
+
     // Disable pointer events for the root when no popup is displayed
+
     const root = document.getElementById('translator-root');
+
     if (root) {
+
       root.style.pointerEvents = 'none';
+
     }
+
   }
+
   
+
   // Clear any existing timer
+
   if (autoRemoveTimeout) {
+
     clearTimeout(autoRemoveTimeout);
+
     autoRemoveTimeout = null;
+
   }
+
 }
+
+
 
 // Initialize once the DOM is loaded
+
 if (document.readyState === 'loading') {
+
   document.addEventListener('DOMContentLoaded', initialize);
+
 } else {
+
   // DOM already loaded, initialize immediately
+
   initialize();
+
 }
 
+
+
 // For websites that dynamically load content (like Facebook, YouTube)
+
 // Re-check periodically if our script is working
+
 setInterval(() => {
+
   // If our translator root doesn't exist, we need to re-initialize
+
   if (!document.getElementById('translator-root') && document.body) {
+
     console.log("Re-initializing translator due to DOM changes");
+
     initialize();
+
   }
+
 }, 3000);
+
+
 
 console.log("English to Bangla Translator content script loaded in frame:", window.location.href);

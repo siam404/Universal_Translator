@@ -1,5 +1,10 @@
 // background.js
 let geminiApiKey = '';
+let featureSettings = {
+  showMeanings: true,
+  showSynonyms: true,
+  showExamples: true
+};
 
 // Initialize context menu item
 browser.contextMenus.create({
@@ -8,21 +13,46 @@ browser.contextMenus.create({
   contexts: ["selection"]
 });
 
-// Load API key from storage
-browser.storage.local.get('geminiApiKey', function(data) {
+// Load settings from storage
+browser.storage.local.get([
+  'geminiApiKey', 
+  'showMeanings',
+  'showSynonyms',
+  'showExamples'
+], function(data) {
   if (data.geminiApiKey) {
     geminiApiKey = data.geminiApiKey;
-    console.log("API key loaded from storage");
-  } else {
-    console.log("No API key found in storage");
+    console.log("Gemini API key loaded from storage");
   }
+  
+  // Update feature settings
+  if (data.showMeanings !== undefined) featureSettings.showMeanings = data.showMeanings;
+  if (data.showSynonyms !== undefined) featureSettings.showSynonyms = data.showSynonyms;
+  if (data.showExamples !== undefined) featureSettings.showExamples = data.showExamples;
+  
+  console.log("Feature settings loaded:", featureSettings);
 });
 
-// Listen for API key updates
+// Listen for settings updates
 browser.runtime.onMessage.addListener(function(message) {
-  if (message.action === "apiKeySaved") {
-    geminiApiKey = message.apiKey;
-    console.log("API key updated");
+  if (message.action === "settingsUpdated") {
+    if (message.settings.geminiApiKey) {
+      geminiApiKey = message.settings.geminiApiKey;
+      console.log("Gemini API key updated");
+    }
+    
+    // Update feature settings
+    if (message.settings.showMeanings !== undefined) {
+      featureSettings.showMeanings = message.settings.showMeanings;
+    }
+    if (message.settings.showSynonyms !== undefined) {
+      featureSettings.showSynonyms = message.settings.showSynonyms;
+    }
+    if (message.settings.showExamples !== undefined) {
+      featureSettings.showExamples = message.settings.showExamples;
+    }
+    
+    console.log("Feature settings updated:", featureSettings);
     return true;
   }
   return true;
@@ -35,12 +65,12 @@ browser.contextMenus.onClicked.addListener(function(info, tab) {
     console.log("Context menu translation requested for:", textToTranslate);
     
     if (textToTranslate && geminiApiKey) {
-      translateText(textToTranslate, tab.id);
+      processText(textToTranslate, tab.id);
     } else if (!geminiApiKey) {
-      console.error("No API key available");
+      console.error("No Gemini API key available");
       notifyAllFrames(tab.id, {
         action: "showError",
-        error: "API key not found. Please set your Gemini API key in the extension popup."
+        error: "Gemini API key not found. Please set your Gemini API key in the extension popup."
       });
     }
   }
@@ -56,30 +86,86 @@ browser.runtime.onMessage.addListener(function(message, sender, sendResponse) {
       return true;
     }
     
-    translateText(message.text, sender.tab.id);
+    processText(message.text, sender.tab.id);
   }
   return true;
 });
 
-// Function to translate text using Gemini API
-function translateText(text, tabId) {
-  console.log("Translating text:", text);
-  console.log("Using API key:", geminiApiKey ? "API key exists" : "No API key");
+// Main function to process selected text
+function processText(text, tabId) {
+  console.log("Processing text:", text);
   
   if (!geminiApiKey) {
     notifyAllFrames(tabId, {
       action: "showError",
-      error: "API key not found. Please set your Gemini API key in the extension popup."
+      error: "Gemini API key not found. Please set your Gemini API key in the extension popup."
     });
     return;
   }
+  
+  // Prepare the prompt based on enabled features
+  let promptParts = ["Provide a response in JSON format with the following:"];
+  promptParts.push("1. Translate the following English text to Bangla (Bengali): \"" + text + "\"");
+  
+  if (featureSettings.showMeanings) {
+    promptParts.push("2. Provide the meanings of key words in the text (in English)");
+  }
+  
+  if (featureSettings.showSynonyms) {
+    promptParts.push("3. Provide synonyms for key words in the text (in English)");
+  }
+  
+  if (featureSettings.showExamples) {
+    promptParts.push("4. Provide 1-2 example sentences for each key word (in English)");
+  }
+  
+  promptParts.push("Format your response in this JSON structure:");
+  
+  let jsonStructure = `{
+    "translation": "Bengali translation here",`;
+  
+  if (featureSettings.showMeanings) {
+    jsonStructure += `
+    "meanings": {
+      "word1": "meaning1",
+      "word2": "meaning2"
+    },`;
+  }
+  
+  if (featureSettings.showSynonyms) {
+    jsonStructure += `
+    "synonyms": {
+      "word1": ["synonym1", "synonym2"],
+      "word2": ["synonym1", "synonym2"]
+    },`;
+  }
+  
+  if (featureSettings.showExamples) {
+    jsonStructure += `
+    "examples": {
+      "word1": ["example sentence 1", "example sentence 2"],
+      "word2": ["example sentence 1", "example sentence 2"]
+    }`;
+  } else {
+    // Remove trailing comma if examples aren't included
+    jsonStructure = jsonStructure.replace(/,\s*$/, "");
+  }
+  
+  jsonStructure += `
+}`;
+  
+  promptParts.push(jsonStructure);
+  promptParts.push("Return ONLY the JSON with no additional text, explanation, or prefixes.");
+  
+  const finalPrompt = promptParts.join("\n\n");
+  console.log("Final prompt:", finalPrompt);
   
   const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
   
   const requestBody = {
     contents: [{
       parts: [{
-        text: `Translate the following English text to Bangla (Bengali). Return only the translated text without any additional explanations or quotation marks: "${text}"`
+        text: finalPrompt
       }]
     }]
   };
@@ -103,8 +189,8 @@ function translateText(text, tabId) {
   .then(data => {
     console.log("API response data:", JSON.stringify(data));
 
-    // Extract translation from Gemini API response
-    let translatedText = "";
+    // Extract response from Gemini API
+    let responseContent = "";
     
     if (data.candidates && 
         data.candidates[0] && 
@@ -113,20 +199,32 @@ function translateText(text, tabId) {
         data.candidates[0].content.parts[0] && 
         data.candidates[0].content.parts[0].text) {
       
-      translatedText = data.candidates[0].content.parts[0].text;
+      responseContent = data.candidates[0].content.parts[0].text;
+      console.log("Extracted response content:", responseContent);
       
-      // Clean up the response
-      translatedText = translatedText.replace(/^["']|["']$/g, ''); // Remove surrounding quotes if present
-      translatedText = translatedText.replace(/^Translation: /i, ''); // Remove "Translation: " prefix if present
-      
-      console.log("Extracted translation:", translatedText);
-      
-      // Send translation to all frames in the tab
-      notifyAllFrames(tabId, {
-        action: "showTranslation",
-        original: text,
-        translation: translatedText
-      });
+      // Parse the JSON response
+      try {
+        // The response might have markdown code blocks, so we need to clean it
+        responseContent = responseContent.replace(/```json\s+/g, '').replace(/```/g, '');
+        
+        const parsedResponse = JSON.parse(responseContent);
+        console.log("Parsed response:", parsedResponse);
+        
+        // Send all the data to content script
+        notifyAllFrames(tabId, {
+          action: "showEnhancedTranslation",
+          original: text,
+          result: parsedResponse,
+          features: featureSettings
+        });
+      } catch (e) {
+        console.error("JSON parsing error:", e);
+        console.error("Response content causing error:", responseContent);
+        notifyAllFrames(tabId, {
+          action: "showError",
+          error: "Error parsing translation result. Please try again."
+        });
+      }
     } else {
       console.error("Unexpected API response structure:", data);
       notifyAllFrames(tabId, {

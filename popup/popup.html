@@ -7,21 +7,30 @@
 </head>
 <body>
   <div class="container">
-    <h1>English to Bangla Translator</h1>
+    <h1>Enhanced English to Bangla Translator</h1>
     <div class="form-group">
-      <label for="apiKey">Gemini API Key:</label>
-      <input type="text" id="apiKey" placeholder="Enter your Gemini API Key">
-      <button id="saveKey">Save</button>
+      <label for="geminiApiKey">Gemini API Key:</label>
+      <input type="text" id="geminiApiKey" placeholder="Enter your Gemini API Key">
     </div>
+    <div class="form-group">
+      <label for="featureToggle">Features:</label>
+      <div class="checkbox-group">
+        <label><input type="checkbox" id="showMeanings" checked> Word Meanings</label>
+        <label><input type="checkbox" id="showSynonyms" checked> Synonyms</label>
+        <label><input type="checkbox" id="showExamples" checked> Usage Examples</label>
+      </div>
+    </div>
+    <button id="saveSettings">Save Settings</button>
     <div class="status">
       <p id="statusMessage">Status: Ready</p>
     </div>
     <div class="instructions">
       <h2>How to use:</h2>
       <ol>
-        <li>Enter your Gemini API key above</li>
+        <li>Enter your Gemini API key (required)</li>
+        <li>Select which features you want to enable</li>
         <li>Select any English text on a webpage</li>
-        <li>The translation will appear in a small popup near the selected text</li>
+        <li>The translation and details will appear in a popup</li>
       </ol>
     </div>
   </div>
