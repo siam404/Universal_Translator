@@ -7,7 +7,7 @@ A powerful browser extension that provides instant translation of selected text 
 ## Installation
 
 ### Chrome / Edge / Brave
-[Add to Chrome](YOUR_CHROME_STORE_LINK_HERE)
+[Add to Chrome / Edge / Brave](https://github.com/user-attachments/files/19408232/step.md)
 
 ### Firefox
 [Add to Firefox](https://addons.mozilla.org/en-US/firefox/addon/universal-translator)
