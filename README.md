@@ -122,7 +122,7 @@ Universal Translator respects your privacy:
 
 ## License
 
-[MIT License](LICENSE)
+[MIT License](https://github.com/siam404/Universal_Translator/blob/main/LICENSE)
 
 ## Acknowledgments
 
