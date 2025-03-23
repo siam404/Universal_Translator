@@ -1,37 +1,32 @@
 {
   "manifest_version": 2,
-  "name": "English to Bangla Translator",
-  "version": "1.2",
-  "description": "Translate English text to Bangla with meanings, synonyms, and examples",
+  "name": "Universal Translator",
+  "version": "1.0",
+  "description": "Translate selected text to any language with definitions in both languages",
   "icons": {
     "48": "icons/icon-48.png",
     "96": "icons/icon-96.png"
   },
   "permissions": [
-    "activeTab",
     "contextMenus",
     "storage",
+    "tabs",
     "webNavigation",
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
     "<all_urls>"
   ],
   "browser_action": {
-    "default_icon": {
-      "48": "icons/icon-48.png"
-    },
     "default_popup": "popup/popup.html",
-    "default_title": "Enhanced English to Bangla Translator"
+    "default_title": "Universal Translator"
   },
   "background": {
-    "scripts": ["background.js"]
+    "scripts": ["background.js"],
+    "persistent": false
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
       "js": ["content-script.js"],
-      "all_frames": true,
-      "match_about_blank": true,
-      "run_at": "document_start"
+      "all_frames": true
     }
   ]
 }

@@ -1,15 +1,13 @@
 // background.js
 let geminiApiKey = '';
 let featureSettings = {
-  showMeanings: true,
-  showSynonyms: true,
-  showExamples: true
+  showMeanings: true
 };
 
 // Initialize context menu item
 browser.contextMenus.create({
   id: "translate-selection",
-  title: "Translate to Bangla",
+  title: "Translate with Universal Translator",
   contexts: ["selection"]
 });
 
@@ -17,8 +15,10 @@ browser.contextMenus.create({
 browser.storage.local.get([
   'geminiApiKey', 
   'showMeanings',
-  'showSynonyms',
-  'showExamples'
+  'targetLanguage',
+  'hotkeysEnabled',
+  'hotkeyModifier',
+  'hotkeyKey'
 ], function(data) {
   if (data.geminiApiKey) {
     geminiApiKey = data.geminiApiKey;
@@ -27,8 +27,6 @@ browser.storage.local.get([
   
   // Update feature settings
   if (data.showMeanings !== undefined) featureSettings.showMeanings = data.showMeanings;
-  if (data.showSynonyms !== undefined) featureSettings.showSynonyms = data.showSynonyms;
-  if (data.showExamples !== undefined) featureSettings.showExamples = data.showExamples;
   
   console.log("Feature settings loaded:", featureSettings);
 });
@@ -45,16 +43,64 @@ browser.runtime.onMessage.addListener(function(message) {
     if (message.settings.showMeanings !== undefined) {
       featureSettings.showMeanings = message.settings.showMeanings;
     }
-    if (message.settings.showSynonyms !== undefined) {
-      featureSettings.showSynonyms = message.settings.showSynonyms;
+    
+    // Handle target language updates
+    if (message.settings.targetLanguage !== undefined) {
+      console.log("Target language updated to:", message.settings.targetLanguage);
     }
-    if (message.settings.showExamples !== undefined) {
-      featureSettings.showExamples = message.settings.showExamples;
+    
+    // Handle hotkeys settings updates
+    if (message.settings.hotkeysEnabled !== undefined) {
+      console.log("Hotkeys mode " + (message.settings.hotkeysEnabled ? "enabled" : "disabled"));
+    }
+    
+    if (message.settings.hotkeyModifier && message.settings.hotkeyKey) {
+      console.log(`Hotkey set to: ${message.settings.hotkeyModifier}+${message.settings.hotkeyKey}`);
     }
     
     console.log("Feature settings updated:", featureSettings);
     return true;
   }
+  return true;
+});
+
+// Add handlers for ping and wakeup actions in the message listener
+browser.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+  console.log("Background script received message:", request);
+  
+  // Handle ping requests (for connection checking)
+  if (request.action === "ping") {
+    console.log("Received ping request from content script");
+    sendResponse({ status: "alive", timestamp: Date.now() });
+    return true;
+  }
+  
+  // Handle wakeup requests (for reconnection)
+  if (request.action === "wakeup") {
+    console.log("Received wakeup request from content script");
+    // Simply responding confirms the connection is working
+    sendResponse({ status: "awake", timestamp: Date.now() });
+    return true;
+  }
+  
+  // Rest of the message handling...
+  
+  // For existing translateSelection action
+  if (request.action === "translateSelection") {
+    if (request.text) {
+      console.log("Translation requested from content script:", request.text);
+      
+      if (!sender.tab) {
+        console.error("Sender tab information missing");
+        return true;
+      }
+      
+      const targetLanguage = request.targetLanguage || 'Bangla';
+      processText(request.text, sender.tab.id, targetLanguage);
+    }
+  }
+  
+  // Return true to indicate async response (if needed)
   return true;
 });
 
@@ -76,24 +122,9 @@ browser.contextMenus.onClicked.addListener(function(info, tab) {
   }
 });
 
-// Listen for messages from content script
-browser.runtime.onMessage.addListener(function(message, sender, sendResponse) {
-  if (message.action === "translateSelection" && message.text) {
-    console.log("Translation requested from content script:", message.text);
-    
-    if (!sender.tab) {
-      console.error("Sender tab information missing");
-      return true;
-    }
-    
-    processText(message.text, sender.tab.id);
-  }
-  return true;
-});
-
 // Main function to process selected text
-function processText(text, tabId) {
-  console.log("Processing text:", text);
+function processText(text, tabId, targetLanguage = 'English') {
+  console.log("Processing text:", text, "to", targetLanguage);
   
   if (!geminiApiKey) {
     notifyAllFrames(tabId, {
@@ -103,141 +134,149 @@ function processText(text, tabId) {
     return;
   }
   
-  // Prepare the prompt based on enabled features
-  let promptParts = ["Provide a response in JSON format with the following:"];
-  promptParts.push("1. Translate the following English text to Bangla (Bengali): \"" + text + "\"");
+  if (text.length > 500) {
+    text = text.substring(0, 500);
+    console.log("Text truncated to 500 characters");
+  }
   
+  // Construct the prompt
+  let promptParts = [
+    `1. Detect the language of the following text and translate it to ${targetLanguage}. Return the detected language name (not code) in English.`
+  ];
+  
+  // Generate the list of requested features
   if (featureSettings.showMeanings) {
-    promptParts.push("2. Provide the meanings of key words in the text (in English)");
-  }
-  
-  if (featureSettings.showSynonyms) {
-    promptParts.push("3. Provide synonyms for key words in the text (in English)");
-  }
-  
-  if (featureSettings.showExamples) {
-    promptParts.push("4. Provide 1-2 example sentences for each key word (in English)");
+    promptParts.push(`2. Provide the meanings of key words in the text. Give meanings in both English AND ${targetLanguage}`);
   }
   
   promptParts.push("Format your response in this JSON structure:");
   
+  // Build the expected JSON structure based on enabled features
   let jsonStructure = `{
-    "translation": "Bengali translation here",`;
+    "detectedLanguage": "name of detected source language",
+    "translation": "${targetLanguage} translation goes here"`;
   
   if (featureSettings.showMeanings) {
-    jsonStructure += `
+    jsonStructure += `,
     "meanings": {
-      "word1": "meaning1",
-      "word2": "meaning2"
-    },`;
-  }
-  
-  if (featureSettings.showSynonyms) {
-    jsonStructure += `
-    "synonyms": {
-      "word1": ["synonym1", "synonym2"],
-      "word2": ["synonym1", "synonym2"]
-    },`;
-  }
-  
-  if (featureSettings.showExamples) {
-    jsonStructure += `
-    "examples": {
-      "word1": ["example sentence 1", "example sentence 2"],
-      "word2": ["example sentence 1", "example sentence 2"]
+      "word1": "English meaning + ${targetLanguage} meaning",
+      "word2": "English meaning + ${targetLanguage} meaning"
     }`;
-  } else {
-    // Remove trailing comma if examples aren't included
-    jsonStructure = jsonStructure.replace(/,\s*$/, "");
   }
   
   jsonStructure += `
 }`;
   
   promptParts.push(jsonStructure);
-  promptParts.push("Return ONLY the JSON with no additional text, explanation, or prefixes.");
+  promptParts.push(`Text to translate: "${text}"`);
   
-  const finalPrompt = promptParts.join("\n\n");
-  console.log("Final prompt:", finalPrompt);
+  const prompt = promptParts.join("\n\n");
+  console.log("Generated prompt:", prompt);
   
-  const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
-  
-  const requestBody = {
-    contents: [{
-      parts: [{
-        text: finalPrompt
-      }]
-    }]
-  };
-  
-  console.log("Sending API request with body:", JSON.stringify(requestBody));
-  
-  fetch(`${apiUrl}?key=${geminiApiKey}`, {
-    method: "POST",
+  // Call the Gemini API
+  fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
+    method: 'POST',
     headers: {
-      "Content-Type": "application/json"
+      'Content-Type': 'application/json',
     },
-    body: JSON.stringify(requestBody)
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            {
+              text: prompt
+            }
+          ]
+        }
+      ],
+      generationConfig: {
+        temperature: 0.2,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 1024,
+      }
+    })
   })
   .then(response => {
-    console.log("API response status:", response.status);
     if (!response.ok) {
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
     return response.json();
   })
   .then(data => {
-    console.log("API response data:", JSON.stringify(data));
-
-    // Extract response from Gemini API
-    let responseContent = "";
-    
-    if (data.candidates && 
-        data.candidates[0] && 
-        data.candidates[0].content && 
-        data.candidates[0].content.parts && 
-        data.candidates[0].content.parts[0] && 
-        data.candidates[0].content.parts[0].text) {
+    try {
+      console.log("API response:", data);
       
-      responseContent = data.candidates[0].content.parts[0].text;
-      console.log("Extracted response content:", responseContent);
+      if (!data.candidates || data.candidates.length === 0) {
+        throw new Error("No response from API");
+      }
       
-      // Parse the JSON response
+      const responseText = data.candidates[0].content.parts[0].text;
+      console.log("Response text:", responseText);
+      
+      // Extract JSON from the response
+      const jsonMatch = responseText.match(/```(?:json)?\s*({[\s\S]*?})\s*```/) || 
+                        responseText.match(/({[\s\S]*})/);
+      
+      if (!jsonMatch) {
+        throw new Error("Could not extract JSON from response");
+      }
+      
+      const jsonString = jsonMatch[1];
+      const result = JSON.parse(jsonString);
+      
+      if (!result.translation) {
+        throw new Error("No translation in result");
+      }
+      
+      // Send the translation to all frames
+      notifyAllFrames(tabId, {
+        action: "showEnhancedTranslation",
+        original: text,
+        result: result,
+        detectedLanguage: result.detectedLanguage || '',
+        features: featureSettings
+      });
+      
+    } catch (error) {
+      console.error("Error processing API response:", error);
+      
+      // Simplified response for errors - use simple translation if available
       try {
-        // The response might have markdown code blocks, so we need to clean it
-        responseContent = responseContent.replace(/```json\s+/g, '').replace(/```/g, '');
+        const simpleTranslation = data.candidates[0].content.parts[0].text
+          .split('\n')
+          .find(line => !line.startsWith('{') && !line.includes('```') && line.trim().length > 0);
         
-        const parsedResponse = JSON.parse(responseContent);
-        console.log("Parsed response:", parsedResponse);
-        
-        // Send all the data to content script
-        notifyAllFrames(tabId, {
-          action: "showEnhancedTranslation",
-          original: text,
-          result: parsedResponse,
-          features: featureSettings
-        });
+        if (simpleTranslation) {
+          // Try to extract detected language from the response text
+          let detectedLanguage = '';
+          const langMatch = responseText.match(/detected language.*?[is:|:]\s*([\w\s]+)/i);
+          if (langMatch && langMatch[1]) {
+            detectedLanguage = langMatch[1].trim();
+          }
+          
+          notifyAllFrames(tabId, {
+            action: "showTranslation",
+            original: text,
+            translation: simpleTranslation,
+            detectedLanguage: detectedLanguage
+          });
+        } else {
+          throw new Error("Could not extract a simple translation");
+        }
       } catch (e) {
-        console.error("JSON parsing error:", e);
-        console.error("Response content causing error:", responseContent);
         notifyAllFrames(tabId, {
           action: "showError",
-          error: "Error parsing translation result. Please try again."
+          error: "Could not process the translation. API response format was unexpected."
         });
       }
-    } else {
-      console.error("Unexpected API response structure:", data);
-      notifyAllFrames(tabId, {
-        action: "showError",
-        error: "Translation failed. API response format was unexpected."
-      });
     }
   })
   .catch(error => {
-    console.error("Translation error:", error);
+    console.error("API call error:", error);
     notifyAllFrames(tabId, {
       action: "showError",
-      error: "API error: " + error.message
+      error: "Error calling the Gemini API: " + error.message
     });
   });
 }

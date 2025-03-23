@@ -7,31 +7,148 @@
 </head>
 <body>
   <div class="container">
-    <h1>Enhanced English to Bangla Translator</h1>
-    <div class="form-group">
+    <h1>Universal Translator</h1>
+    
+    <div class="form-group api-key-section">
       <label for="geminiApiKey">Gemini API Key:</label>
-      <input type="text" id="geminiApiKey" placeholder="Enter your Gemini API Key">
-    </div>
-    <div class="form-group">
-      <label for="featureToggle">Features:</label>
-      <div class="checkbox-group">
-        <label><input type="checkbox" id="showMeanings" checked> Word Meanings</label>
-        <label><input type="checkbox" id="showSynonyms" checked> Synonyms</label>
-        <label><input type="checkbox" id="showExamples" checked> Usage Examples</label>
+      <input type="text" id="geminiApiKey" placeholder="Enter your API Key">
+      <button id="saveApiKey">Save API Key</button>
+      <div class="status">
+        <p id="statusMessage" style="margin: 0">Status: Ready</p>
       </div>
     </div>
-    <button id="saveSettings">Save Settings</button>
-    <div class="status">
-      <p id="statusMessage">Status: Ready</p>
+    <div class="form-group settings-section">
+      <label for="targetLanguage">Target Language:</label>
+      <select id="targetLanguage">
+        <option value="English">English</option>
+        <option value="Bangla">Bangla</option>
+        <option value="Hindi">Hindi</option>
+        <option value="Arabic">Arabic</option>
+        <option value="Chinese">Chinese</option>
+        <option value="Spanish">Spanish</option>
+        <option value="French">French</option>
+        <option value="Russian">Russian</option>
+        <option value="Portuguese">Portuguese</option>
+        <option value="Japanese">Japanese</option>
+        <option value="German">German</option>
+        <option value="Korean">Korean</option>
+        <option value="Italian">Italian</option>
+        <option value="Thai">Thai</option>
+        <option value="Turkish">Turkish</option>
+        <option value="Vietnamese">Vietnamese</option>
+      </select>
     </div>
-    <div class="instructions">
-      <h2>How to use:</h2>
-      <ol>
-        <li>Enter your Gemini API key (required)</li>
-        <li>Select which features you want to enable</li>
-        <li>Select any English text on a webpage</li>
-        <li>The translation and details will appear in a popup</li>
-      </ol>
+    <div class="form-group settings-section">
+      <label class="switch-label">
+        <span>Meanings:</span>
+        <div class="toggle-switch">
+          <input type="checkbox" id="showMeanings" checked>
+          <span class="slider round"></span>
+        </div>
+      </label>
+    </div>
+    <div class="form-group hotkeys-section">
+      <label class="switch-label">
+        <span>Hotkeys Mode:</span>
+        <div class="toggle-switch">
+          <input type="checkbox" id="hotkeysEnabled">
+          <span class="slider round"></span>
+        </div>
+      </label>
+      
+      <!-- Current hotkey button that transforms into editor -->
+      <div class="current-hotkey-container">
+        <div class="hotkey-display" id="hotkeyDisplay">
+          <span class="current-hotkey-label">Current hotkey:</span>
+          <div class="current-hotkey-button" id="currentHotkeyButton">
+            <span id="currentModifierText">Shift</span> + <span id="currentKeyText">T</span>
+            <div class="edit-icon">✎</div>
+          </div>
+        </div>
+        
+        <!-- Hotkey editor (hidden by default) -->
+        <div class="hotkey-editor" id="hotkeyEditor" style="display: none;">
+          <div class="hotkey-input-container">
+            <select id="hotkeyModifier">
+              <option value="Ctrl">Ctrl</option>
+              <option value="Shift" selected>Shift</option>
+            </select>
+            <span>+</span>
+            <select id="hotkeyKey">
+              <option value="T" selected>T</option>
+              <option value="R">R</option>
+              <option value="D">D</option>
+              <option value="F">F</option>
+              <option value="C">C</option>
+              <option value="Space">Space</option>
+              <option value="Q">Q</option>
+            </select>
+          </div>
+          <div class="editor-buttons">
+            <button id="saveHotkeyButton" class="save-hotkey-button">Apply</button>
+            <button id="cancelHotkeyButton" class="cancel-hotkey-button">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Hotkey information text -->
+    <div class="hotkey-info-text">
+      When hotkeys are enabled, auto-translation on selection will not work
+    </div>
+    
+    <!-- Direct link button to get API key -->
+    <div class="help-button-container">
+      <a href="https://aistudio.google.com/apikey" target="_blank" class="help-button">
+        Get Your Free Gemini API Key
+      </a>
+    </div>
+    
+    <!-- API Key Modal -->
+    <div id="apiKeyHelpModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>How to Get Your Gemini API Key</h2>
+          <span class="close-modal">&times;</span>
+        </div>
+        <div class="modal-body">
+          <div class="api-steps">
+            <p>Follow these simple steps to get your free API key:</p>
+            <ol>
+              <li>
+                <strong>Click the link below to go to Google AI Studio</strong>
+                <div class="step-detail">This will open in a new tab</div>
+              </li>
+              <li>
+                <strong>Sign in with your Google account</strong>
+                <div class="step-detail">If you're already signed in, you'll go directly to the API page</div>
+              </li>
+              <li>
+                <strong>Click "Create API Key"</strong>
+                <div class="step-detail">The button is usually in the top right of the page</div>
+              </li>
+              <li>
+                <strong>Copy your new API key</strong>
+                <div class="step-detail">After the key is generated, click to copy it to your clipboard</div>
+              </li>
+              <li>
+                <strong>Come back here and paste the API key</strong>
+                <div class="step-detail">Paste the key to activate the extension and start using Gemini!</div>
+              </li>
+            </ol>
+            <div class="api-key-link-container">
+              <a href="https://aistudio.google.com/apikey" target="_blank" class="api-key-link">
+                <span class="link-icon">🔗</span>
+                <span>Open Google AI Studio</span>
+                <span class="external-icon">↗</span>
+              </a>
+            </div>
+            <div class="security-note">
+              <p>🔒 Your API key stays private and is only used to connect you securely to Gemini services.</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
   <script src="popup.js"></script>

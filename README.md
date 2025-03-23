@@ -1,63 +1,135 @@
-# Browser Translator Extension
+# Universal Translator
 
-A simple browser extension that translates selected English text into Bangla using the Gemini AI API.
+A powerful browser extension that provides instant translation of selected text with advanced features including word meanings, language detection, and customizable hotkeys.
 
-## Features
-- Instantly translates selected English text to Bangla
-- Displays translation in a popup near the selected text
-- Right-click context menu for quick translations
-- Easy API key setup
-
----
+![Universal Translator Logo](assets/logo.png)
 
 ## Installation
+
+### Chrome / Edge / Brave
+[Add to Chrome](YOUR_CHROME_STORE_LINK_HERE)
+
 ### Firefox
-1. Open Firefox and navigate to `about:debugging`
-2. Click **"This Firefox"**
-3. Click **"Load Temporary Add-on"**
-4. Navigate to your extension folder and select the `manifest.json` file
+[Add to Firefox](YOUR_FIREFOX_STORE_LINK_HERE)
 
-### Chrome
-1. Open Chrome and go to `chrome://extensions/`
-2. Enable **Developer mode** (top right corner)
-3. Click **"Load unpacked"**
-4. Navigate to your extension folder and select it
+## Features
 
-### Get a Gemini API Key
-1. Go to [Google AI Studio](https://aistudio.google.com/)
-2. Sign in or create an account
-3. Generate a new API key
+### ✨ Instant Translation
+- Simply select text on any webpage to see an instant translation
+- Results appear in a clean, non-intrusive popup
+- Automatically detects the source language
 
-### Set Up the Extension
-1. Click on the extension icon in the browser toolbar
-2. Enter your Gemini API key and click **Save**
+### 🔤 Multiple Languages
+Translate to any of these supported languages:
+- English
+- Bangla
+- Hindi
+- Arabic
+- Chinese
+- Spanish
+- French
+- Russian
+- Portuguese
+- Japanese
+- German
+- Korean
+- Italian
+- Thai
+- Turkish
+- Vietnamese
 
----
+### 📚 Word Meanings
+- Get detailed word meanings alongside your translations
+- Toggle this feature on/off depending on your needs
+
+### ⌨️ Customizable Hotkeys
+- Enable hotkey mode to translate only when a key combination is pressed
+- Customize your preferred key combination:
+  - Modifier keys: Ctrl or Shift
+  - Action keys: T, R, D, F, C, Space, or Q
+- Recommended hotkey: Shift+D (easy to press)
+- Default hotkey: Shift+T
+
+### 🔒 Privacy First
+- Your API key stays on your device
+- No data collection or tracking
+- Secure connection to Gemini services
+
+## Getting Started
+
+### 1. Install the extension
+Add the Universal Translator to your browser using the links above.
+
+### 2. Get your Gemini API Key
+The extension uses Google's Gemini AI for high-quality translations.
+
+1. Click the "Get Your Free Gemini API Key" button in the extension popup
+2. Sign in with your Google account if not already logged in
+3. Click "Create API Key" on the Google AI Studio page
+4. Copy your new API key
+
+### 3. Set up the extension
+1. Paste your API key in the extension popup and click "Save API Key"
+2. Choose your preferred target language from the dropdown
+3. Enable or disable the meanings feature as needed
+4. Configure your hotkey preferences if desired
 
 ## Usage
-1. Navigate to any webpage
-2. Select English text by clicking and dragging or using `Shift + Arrow keys`
-3. The translation should appear in a popup near the selected text
-4. Alternatively, right-click the selected text and choose **"Translate to Bangla"** from the context menu
 
----
+### Basic Translation
+1. Select any text on a webpage
+2. A translation popup will appear automatically showing:
+   - Original text with detected language
+   - Translation in your target language
+   - Word meanings (if enabled)
+
+### Hotkey Translation
+If you've enabled hotkey mode:
+1. Select any text on a webpage
+2. Press your configured hotkey combination (default: Shift+T)
+3. The translation popup will appear
+
+### Adjusting Settings
+Click the extension icon in your browser toolbar to:
+- Change your target language
+- Toggle meanings on/off
+- Enable/disable hotkey mode
+- Configure your preferred hotkey combination
 
 ## Troubleshooting
-- If translations don't appear, check the browser console for errors (`Ctrl + Shift + J` in Firefox, `Ctrl + Shift + I` in Chrome)
-- Ensure your API key is correctly entered and saved
-- Make sure you have an active internet connection
 
----
+### Translation Error
+If you see a "Translator Error" message:
+- Verify your API key is entered correctly
+- Check your internet connection
+- Try refreshing the page
 
-## Contributing
-Feel free to contribute by reporting issues or suggesting improvements!
+### Popup Disappears Too Quickly
+- The popup stays visible when your mouse is over it
+- Move your cursor to the popup to keep it open longer
 
----
+### API Key Not Working
+- Ensure you've copied the entire key from Google AI Studio
+- Click "Save API Key" after pasting it
+- Restart your browser if the issue persists
+
+## Privacy Policy
+
+Universal Translator respects your privacy:
+- Your API key is stored locally in your browser
+- No personal data is collected or transmitted
+- Selected text is only sent to Google's Gemini API for translation purposes
 
 ## License
-This project is licensed under the MIT License.
+
+[MIT License](LICENSE)
+
+## Acknowledgments
+
+- Powered by Google's Gemini AI
+- Icons provided by [Your Icon Source]
+- Special thanks to all beta testers!
 
 ---
 
-### Happy Translating! 🚀
-
+For support or feature requests, please [create an issue](YOUR_GITHUB_REPO_LINK_HERE) on our GitHub repository. 

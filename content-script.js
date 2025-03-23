@@ -3,16 +3,126 @@ let translationPopup = null;
 let autoRemoveTimeout = null;
 let isSelectionInsidePopup = false;
 let contextMenuTriggered = false;
+let targetLanguage = 'English'; // Set English as default target language
+let detectedLanguage = ''; // Will store the detected language
+let hotkeysEnabled = false; // Default to auto-translation (hotkeys disabled)
+let hotkeyModifier = 'Shift'; // Default hotkey modifier
+let hotkeyKey = 'T'; // Default hotkey key
+
+// Add variables to track connection state and last activity
+let isConnectionActive = true;
+let lastActivityTime = Date.now();
+let connectionCheckInterval = null;
 
 // Initialize the extension
 function initialize() {
-  console.log("Initializing Enhanced English to Bangla Translator in frame:", window.location.href);
+  console.log("Initializing Universal Translator in frame:", window.location.href);
   
   // Create a root element for our popups that will be outside any shadow DOM
   createRootElement();
   
   // Setup selection listeners
   setupSelectionListeners();
+  
+  // Load user preferences with retry mechanism
+  loadUserPreferencesWithRetry();
+  
+  // Setup connection monitoring
+  setupConnectionMonitoring();
+}
+
+// Load user preferences from storage
+function loadUserPreferences() {
+  browser.storage.local.get([
+    'targetLanguage', 
+    'hotkeysEnabled', 
+    'hotkeyModifier', 
+    'hotkeyKey'
+  ], function(data) {
+    if (data.targetLanguage) {
+      targetLanguage = data.targetLanguage;
+      console.log("Target language loaded from storage:", targetLanguage);
+    } else {
+      // Set default to English if no preference found
+      targetLanguage = 'English';
+      console.log("No target language found in storage, defaulting to English");
+    }
+    
+    // Load hotkeys settings
+    if (data.hotkeysEnabled !== undefined) {
+      hotkeysEnabled = data.hotkeysEnabled;
+      console.log("Hotkeys mode " + (hotkeysEnabled ? "enabled" : "disabled"));
+    }
+    
+    // Load hotkey modifier
+    if (data.hotkeyModifier) {
+      hotkeyModifier = data.hotkeyModifier;
+    }
+    
+    // Load hotkey key
+    if (data.hotkeyKey) {
+      hotkeyKey = data.hotkeyKey;
+    }
+    
+    console.log(`Hotkey set to: ${hotkeyModifier}+${hotkeyKey}`);
+  });
+}
+
+// Add a retry mechanism for loading user preferences
+function loadUserPreferencesWithRetry(retryCount = 0, maxRetries = 5) {
+  console.log(`Attempting to load user preferences (attempt ${retryCount + 1}/${maxRetries})`);
+  
+  browser.storage.local.get([
+    'targetLanguage', 
+    'hotkeysEnabled', 
+    'hotkeyModifier', 
+    'hotkeyKey',
+    'geminiApiKey',
+    'showMeanings'
+  ], function(data) {
+    // Check if API key is available
+    const hasApiKey = !!data.geminiApiKey;
+    
+    if (data.targetLanguage) {
+      targetLanguage = data.targetLanguage;
+      console.log("Target language loaded from storage:", targetLanguage);
+    } else {
+      // Set default to English if no preference found
+      targetLanguage = 'English';
+      console.log("No target language found in storage, defaulting to English");
+    }
+    
+    // Load hotkeys settings
+    if (data.hotkeysEnabled !== undefined) {
+      hotkeysEnabled = data.hotkeysEnabled;
+      console.log("Hotkeys mode " + (hotkeysEnabled ? "enabled" : "disabled"));
+    }
+    
+    // Load hotkey modifier
+    if (data.hotkeyModifier) {
+      hotkeyModifier = data.hotkeyModifier;
+    }
+    
+    // Load hotkey key
+    if (data.hotkeyKey) {
+      hotkeyKey = data.hotkeyKey;
+    }
+    
+    console.log(`Hotkey set to: ${hotkeyModifier}+${hotkeyKey}`);
+    
+    // Log API key status (without revealing the key)
+    console.log("API key found in storage:", hasApiKey);
+    
+    // Retry more times and with exponential backoff for new tabs
+    if (!hasApiKey && retryCount < maxRetries) {
+      const delayMs = Math.min(1000 * Math.pow(1.5, retryCount), 10000); // Exponential backoff with 10s max
+      console.log(`No API key found, will retry in ${delayMs/1000}s (attempt ${retryCount + 1}/${maxRetries})...`);
+      
+      setTimeout(() => {
+        loadUserPreferencesWithRetry(retryCount + 1, maxRetries);
+      }, delayMs);
+    }
+  });
 }
 
 // Create a persistent root element for our popups
@@ -54,6 +164,9 @@ function setupSelectionListeners() {
 
 // Main handler for mouse up events (potential selections)
 function handleMouseUp(event) {
+  // Update last activity time
+  lastActivityTime = Date.now();
+  
   // Skip if the event came from within our popup
   if (translationPopup && isEventInsidePopup(event)) {
     console.log("Mouse up inside popup - ignoring");
@@ -71,12 +184,33 @@ function handleMouseUp(event) {
     const selectedText = getSelectedText();
     if (selectedText && selectedText.length > 0 && !isSelectionInsidePopup) {
       console.log("Text selected:", selectedText);
-      // Send the selected text to the background script for translation
-      browser.runtime.sendMessage({
-        action: "translateSelection",
-        text: selectedText
-      }).catch(err => {
-        console.error("Error sending message to background script:", err);
+      
+      // If hotkeys are enabled, don't auto-translate
+      if (hotkeysEnabled) {
+        console.log("Hotkeys mode enabled - not auto-translating");
+        return;
+      }
+      
+      // Get fresh target language from storage before translating
+      browser.storage.local.get(['targetLanguage'], function(data) {
+        if (data.targetLanguage) {
+          targetLanguage = data.targetLanguage;
+          console.log("Using fresh target language from storage:", targetLanguage);
+        }
+        
+        // If connection might be inactive, try to reconnect first
+        if (!isConnectionActive) {
+          console.log("Connection appears inactive, attempting to reconnect before translating");
+          reconnectToBackgroundScript();
+          
+          // Wait a moment for reconnection attempt before trying to translate
+          setTimeout(() => {
+            sendTranslationRequest(selectedText, targetLanguage);
+          }, 500);
+        } else {
+          // Connection should be active, proceed normally
+          sendTranslationRequest(selectedText, targetLanguage);
+        }
       });
     }
   }, 200);
@@ -100,21 +234,68 @@ function handleSelectionChange() {
   // We don't auto-translate here to avoid too many simultaneous requests
 }
 
-// Keyboard shortcut handler (Alt+T)
+// Keyboard shortcut handler
 function handleKeyboardShortcut(event) {
-  // Alt+T shortcut for translation
-  if (event.altKey && event.key === 't') {
+  // Update last activity time
+  lastActivityTime = Date.now();
+  
+  // Check if the pressed key matches our hotkey configuration
+  const isHotkeyPressed = checkHotkeyPressed(event);
+  
+  if (isHotkeyPressed) {
     const selectedText = getSelectedText();
     if (selectedText && selectedText.length > 0) {
-      console.log("Keyboard shortcut triggered translation for:", selectedText);
-      browser.runtime.sendMessage({
-        action: "translateSelection",
-        text: selectedText
-      }).catch(err => {
-        console.error("Error sending message to background script:", err);
+      console.log(`Hotkey ${hotkeyModifier}+${hotkeyKey} triggered translation for:`, selectedText);
+      
+      // Get fresh target language from storage before translating
+      browser.storage.local.get(['targetLanguage'], function(data) {
+        if (data.targetLanguage) {
+          targetLanguage = data.targetLanguage;
+          console.log("Using fresh target language from storage:", targetLanguage);
+        }
+        
+        // If connection might be inactive, try to reconnect first
+        if (!isConnectionActive) {
+          console.log("Connection appears inactive, attempting to reconnect before translating");
+          reconnectToBackgroundScript();
+          
+          // Wait a moment for reconnection attempt before trying to translate
+          setTimeout(() => {
+            sendTranslationRequest(selectedText, targetLanguage);
+          }, 500);
+        } else {
+          // Connection should be active, proceed normally
+          sendTranslationRequest(selectedText, targetLanguage);
+        }
       });
     }
   }
+}
+
+// Helper function to check if the pressed key matches our hotkey configuration
+function checkHotkeyPressed(event) {
+  // Convert configuration to actual event properties
+  const modifierMap = {
+    'Alt': 'altKey',
+    'Ctrl': 'ctrlKey',
+    'Shift': 'shiftKey'
+  };
+  
+  const modifierProperty = modifierMap[hotkeyModifier];
+  
+  // For key matching
+  let keyMatches = false;
+  
+  // Handle special case for Space
+  if (hotkeyKey === 'Space') {
+    keyMatches = event.key === ' ' || event.code === 'Space';
+  } else {
+    // Case-insensitive comparison for regular keys
+    keyMatches = event.key.toLowerCase() === hotkeyKey.toLowerCase();
+  }
+  
+  // Check if both modifier and key match
+  return event[modifierProperty] && keyMatches;
 }
 
 // Get selected text from anywhere in the document
@@ -164,330 +345,554 @@ browser.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   
   if (message.action === "showTranslation") {
     console.log("Showing translation:", message.translation);
+    detectedLanguage = message.detectedLanguage || '';
     showTranslationPopup(message.original, message.translation);
     sendResponse({status: "translation shown"});
   } else if (message.action === "showEnhancedTranslation") {
     console.log("Showing enhanced translation:", message);
+    detectedLanguage = message.detectedLanguage || '';
     showEnhancedTranslationPopup(message.original, message.result, message.features);
     sendResponse({status: "enhanced translation shown"});
   } else if (message.action === "showError") {
     console.log("Showing error:", message.error);
     showErrorPopup(message.error);
     sendResponse({status: "error shown"});
+  } else if (message.action === "updateSettings") {
+    // Handle settings updates
+    console.log("Updating settings:", message);
+    
+    // Update target language
+    if (message.targetLanguage) {
+      targetLanguage = message.targetLanguage;
+      console.log("Target language updated to:", targetLanguage);
+    }
+    
+    // Update hotkeys settings
+    if (message.hotkeysEnabled !== undefined) {
+      hotkeysEnabled = message.hotkeysEnabled;
+      console.log("Hotkeys mode " + (hotkeysEnabled ? "enabled" : "disabled"));
+    }
+    
+    // Update hotkey modifier
+    if (message.hotkeyModifier) {
+      hotkeyModifier = message.hotkeyModifier;
+    }
+    
+    // Update hotkey key
+    if (message.hotkeyKey) {
+      hotkeyKey = message.hotkeyKey;
+    }
+    
+    console.log(`Hotkey set to: ${hotkeyModifier}+${hotkeyKey}`);
+    
+    // If we have an open popup, update its title
+    if (translationPopup) {
+      const popupTitle = translationPopup.querySelector('div:first-child div:first-child');
+      if (popupTitle) {
+        popupTitle.textContent = targetLanguage;
+      }
+    }
+    
+    sendResponse({status: "settings updated"});
   }
   return true;
 });
 
 // Function to show enhanced translation popup with meanings, synonyms, examples
 function showEnhancedTranslationPopup(original, result, features) {
-  console.log("Creating enhanced translation popup");
-  // Remove existing popup if there is one
+  // Remove any existing popup
   removeExistingPopup();
   
-  // Get the root element
-  const root = document.getElementById('translator-root') || document.body;
+  // Check if we have the root element, create it if not
+  let root = document.getElementById('translator-root');
+  if (!root) {
+    createRootElement();
+    root = document.getElementById('translator-root');
+  }
   
-  // Create popup element
+  // Create the popup container
   translationPopup = document.createElement('div');
-  translationPopup.className = 'en-bn-translation-popup';
-  translationPopup.setAttribute('data-translator-popup', 'true');
+  translationPopup.dataset.translatorPopup = "true";
   
-  // Style the popup with modern dark theme
+  // Set fixed position styles - always positioned at top right with slight indent
   translationPopup.style.position = 'fixed';
-  translationPopup.style.zIndex = '2147483647'; // Maximum z-index to ensure visibility
-  translationPopup.style.backgroundColor = '#1e1e1e';  // Dark background
-  translationPopup.style.border = '1px solid #333';
-  translationPopup.style.borderRadius = '10px';
+  translationPopup.style.top = '100px'; // Fixed position from top
+  translationPopup.style.right = '20px'; // Fixed position from right
+  translationPopup.style.width = '350px'; // Set a fixed width
+  translationPopup.style.minWidth = '350px'; // Enforce minimum width
+  translationPopup.style.maxWidth = '350px'; // Enforce maximum width
+  translationPopup.style.maxHeight = '80vh';
+  translationPopup.style.overflowY = 'auto';
+  translationPopup.style.overflowX = 'hidden';
+  translationPopup.style.backgroundColor = '#222831';
+  translationPopup.style.color = '#eeeeee';
+  translationPopup.style.borderRadius = '12px';
   translationPopup.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.3)';
-  translationPopup.style.padding = '16px';
-  translationPopup.style.maxWidth = '400px';
-  translationPopup.style.width = 'auto';  // Allow responsive sizing
+  translationPopup.style.fontFamily = 'Arial, sans-serif';
   translationPopup.style.fontSize = '14px';
-  translationPopup.style.top = (window.scrollY + 100) + 'px';
-  translationPopup.style.right = '20px';
-  translationPopup.style.transition = 'all 0.2s ease';
-  translationPopup.style.overflow = 'auto';  // Add scrolling for long content
-  translationPopup.style.maxHeight = '80vh';  // Limit height to 80% of viewport
-  translationPopup.style.color = '#fff';  // Base text color
-  translationPopup.style.pointerEvents = 'auto';  // Make sure it can receive events
+  translationPopup.style.zIndex = '2147483647';
+  translationPopup.style.pointerEvents = 'auto';
+  translationPopup.style.opacity = '1';
+  translationPopup.style.transform = 'translateY(0)';
+  translationPopup.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+  translationPopup.style.border = '1px solid #00adb5';
+  translationPopup.style.boxSizing = 'border-box'; // Ensure padding is included in width
   
-  // Create header with title and close button
-  const popupHeader = document.createElement('div');
-  popupHeader.style.display = 'flex';
-  popupHeader.style.justifyContent = 'space-between';
-  popupHeader.style.alignItems = 'center';
-  popupHeader.style.marginBottom = '12px';
-  popupHeader.style.position = 'sticky';
-  popupHeader.style.top = '0';
-  popupHeader.style.backgroundColor = '#1e1e1e';
-  popupHeader.style.padding = '0 0 10px 0';
-  popupHeader.style.borderBottom = '1px solid #333';
+  // Create header with target language and close button
+  const header = document.createElement('div');
+  header.style.display = 'flex';
+  header.style.justifyContent = 'space-between';
+  header.style.alignItems = 'center';
+  header.style.padding = '10px 15px';
+  header.style.borderBottom = '1px solid #393e46';
+  header.style.backgroundColor = '#1f252d';
+  header.style.borderTopLeftRadius = '12px';
+  header.style.borderTopRightRadius = '12px';
+  header.style.width = '100%'; // Ensure header takes full width
+  header.style.boxSizing = 'border-box'; // Include padding in width calculation
   
-  const popupTitle = document.createElement('div');
-  popupTitle.textContent = 'English to Bangla';
-  popupTitle.style.fontWeight = 'bold';
-  popupTitle.style.color = '#fff';  // White text
-  popupTitle.style.fontSize = '16px';
+  // Title is the target language only (no subtitle)
+  const titleSpan = document.createElement('div');
+  titleSpan.textContent = targetLanguage;
+  titleSpan.style.fontWeight = 'bold';
+  titleSpan.style.color = '#00adb5';
+  titleSpan.style.fontSize = '16px';
   
   // Create close button
-  const closeButton = document.createElement('button');
-  closeButton.textContent = '✕';
-  closeButton.style.border = 'none';
-  closeButton.style.background = 'none';
+  const closeButton = document.createElement('div');
+  closeButton.innerHTML = '&times;';
   closeButton.style.cursor = 'pointer';
-  closeButton.style.fontSize = '16px';
-  closeButton.style.color = '#aaa';  // Light gray
-  closeButton.style.padding = '0 5px';
-  closeButton.style.transition = 'color 0.2s ease';
-  closeButton.onclick = removeExistingPopup;
+  closeButton.style.fontSize = '20px';
+  closeButton.style.color = '#aaaaaa';
+  closeButton.style.width = '24px';
+  closeButton.style.height = '24px';
+  closeButton.style.lineHeight = '24px';
+  closeButton.style.textAlign = 'center';
+  closeButton.style.borderRadius = '50%';
+  closeButton.style.transition = 'all 0.2s ease';
   
-  // Add hover effect to close button
-  closeButton.onmouseover = function() {
-    this.style.color = '#fff';
-  };
-  closeButton.onmouseout = function() {
-    this.style.color = '#aaa';
-  };
+  // Hover effect for close button
+  closeButton.addEventListener('mouseover', () => {
+    closeButton.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+    closeButton.style.color = '#ffffff';
+  });
   
-  popupHeader.appendChild(popupTitle);
-  popupHeader.appendChild(closeButton);
+  closeButton.addEventListener('mouseout', () => {
+    closeButton.style.backgroundColor = 'transparent';
+    closeButton.style.color = '#aaaaaa';
+  });
   
-  // Main content container
+  // Close popup when button is clicked
+  closeButton.addEventListener('click', () => {
+    removeExistingPopup();
+  });
+  
+  header.appendChild(titleSpan);
+  header.appendChild(closeButton);
+  translationPopup.appendChild(header);
+  
+  // Content container
   const contentContainer = document.createElement('div');
+  contentContainer.style.padding = '15px';
+  contentContainer.style.width = '100%'; // Ensure content container takes full width
+  contentContainer.style.boxSizing = 'border-box'; // Include padding in width calculation
   
-  // Create original text element
-  const originalElement = document.createElement('div');
-  originalElement.style.marginBottom = '12px';
-  originalElement.style.color = '#ccc';  // Light gray text
-  originalElement.style.padding = '10px';
-  originalElement.style.backgroundColor = '#2a2a2a';  // Slightly lighter background
-  originalElement.style.border = '1px solid #444';
-  originalElement.style.borderRadius = '6px';
-  originalElement.style.wordWrap = 'break-word';  // Enable word wrapping
-  originalElement.style.overflowWrap = 'break-word';  // Handle long words
-  originalElement.style.maxHeight = '100px';  // Limit height for very long text
-  originalElement.style.overflowY = 'auto';  // Add scrollbar for overflow
-  originalElement.textContent = original;
+  // Add original text with language detection
+  let originalTitle = 'Original';
+  if (result.detectedLanguage) {
+    originalTitle = `Original - ${result.detectedLanguage}`;
+  }
   
-  // Create translation section
-  const translationSection = document.createElement('div');
-  translationSection.style.marginBottom = '16px';
+  const originalTextSection = createCollapsibleSection(
+    originalTitle,
+    original,
+    '#aaaaaa',
+    true // Make Original section expanded by default
+  );
+  contentContainer.appendChild(originalTextSection);
   
-  const translationHeader = document.createElement('div');
-  translationHeader.style.display = 'flex';
-  translationHeader.style.justifyContent = 'space-between';
-  translationHeader.style.alignItems = 'center';
-  translationHeader.style.marginBottom = '8px';
+  // Add translation
+  const translationSection = createCollapsibleSection(
+    'Translation',
+    result.translation,
+    '#ffffff',
+    true
+  );
+  contentContainer.appendChild(translationSection);
   
-  const translationLabel = document.createElement('div');
-  translationLabel.textContent = 'Translation';
-  translationLabel.style.fontWeight = 'bold';
-  translationLabel.style.color = '#66d9ff';  // Light blue
-  translationLabel.style.fontSize = '14px';
+  // Add meanings if available
+  if (features.showMeanings && result.meanings && Object.keys(result.meanings).length > 0) {
+    // Now create the meanings section with properly rendered content
+    const meaningsSection = createCollapsibleSection(
+      'Meanings',
+      result.meanings,
+      '#ffffff',
+      false,
+      function(word, meaning) {
+        // Directly return the meaning text without HTML tags
+        if (typeof meaning === 'string') {
+          // Check if meaning has HTML tags and strip them
+          if (meaning.includes('<') && meaning.includes('>')) {
+            // Simple HTML tag stripping for display
+            return meaning.replace(/<[^>]*>/g, '');
+          }
+          return meaning;
+        }
+        return String(meaning);
+      }
+    );
+    contentContainer.appendChild(meaningsSection);
+  }
   
-  translationHeader.appendChild(translationLabel);
-  
-  const translationElement = document.createElement('div');
-  translationElement.style.fontWeight = 'bold';
-  translationElement.style.color = '#fff'; // White for translation
-  translationElement.style.padding = '10px';
-  translationElement.style.backgroundColor = '#2a2a2a';
-  translationElement.style.border = '1px solid #444';
-  translationElement.style.borderRadius = '6px';
-  translationElement.style.fontSize = '16px';  // Slightly larger font for Bangla
-  translationElement.style.wordWrap = 'break-word';  // Enable word wrapping
-  translationElement.style.overflowWrap = 'break-word';  // Handle long words
-  translationElement.textContent = result.translation;
-  
-  // Add copy button for translation
-  const copyButtonContainer = document.createElement('div');
-  copyButtonContainer.style.textAlign = 'right';
-  copyButtonContainer.style.marginTop = '8px';
+  // Add copy button
+  const copyContainer = document.createElement('div');
+  copyContainer.style.display = 'flex';
+  copyContainer.style.justifyContent = 'flex-end';
+  copyContainer.style.padding = '10px 15px';
+  copyContainer.style.borderTop = '1px solid #393e46';
   
   const copyButton = document.createElement('button');
   copyButton.textContent = 'Copy';
-  copyButton.style.backgroundColor = '#444';
-  copyButton.style.color = '#fff';
+  copyButton.style.backgroundColor = '#00adb5';
+  copyButton.style.color = '#ffffff';
   copyButton.style.border = 'none';
   copyButton.style.borderRadius = '4px';
-  copyButton.style.padding = '4px 8px';
+  copyButton.style.padding = '6px 12px';
   copyButton.style.cursor = 'pointer';
   copyButton.style.fontSize = '12px';
+  copyButton.style.fontWeight = 'bold';
   copyButton.style.transition = 'background-color 0.2s';
   
-  copyButton.onmouseover = function() {
-    this.style.backgroundColor = '#555';
-  };
+  // Hover effect for copy button
+  copyButton.addEventListener('mouseover', () => {
+    copyButton.style.backgroundColor = '#00c2cf';
+  });
   
-  copyButton.onmouseout = function() {
-    this.style.backgroundColor = '#444';
-  };
+  copyButton.addEventListener('mouseout', () => {
+    copyButton.style.backgroundColor = '#00adb5';
+  });
   
-  copyButton.onclick = function() {
-    navigator.clipboard.writeText(result.translation).then(() => {
-      const originalText = this.textContent;
-      this.textContent = 'Copied!';
-      this.style.backgroundColor = '#2a6b4a';
-      setTimeout(() => {
-        this.textContent = originalText;
-        this.style.backgroundColor = '#444';
-      }, 1500);
-    }).catch(err => {
-      console.error('Failed to copy text: ', err);
-    });
-  };
+  // Copy translation to clipboard
+  copyButton.addEventListener('click', () => {
+    navigator.clipboard.writeText(result.translation)
+      .then(() => {
+        const originalText = copyButton.textContent;
+        copyButton.textContent = 'Copied!';
+        setTimeout(() => {
+          copyButton.textContent = originalText;
+        }, 1500);
+      })
+      .catch(err => {
+        console.error('Failed to copy: ', err);
+      });
+  });
   
-  copyButtonContainer.appendChild(copyButton);
-  
-  translationSection.appendChild(translationHeader);
-  translationSection.appendChild(translationElement);
-  translationSection.appendChild(copyButtonContainer);
-  
-  // Create meanings section if enabled and available
-  let meaningsSection = null;
-  if (features.showMeanings && result.meanings) {
-    meaningsSection = createDictionarySection(
-      'Meanings', 
-      result.meanings, 
-      '#66d9ff', // Light blue color
-      (word, meaning) => meaning // Display format: just the meaning
-    );
-  }
-  
-  // Create synonyms section if enabled and available
-  let synonymsSection = null;
-  if (features.showSynonyms && result.synonyms) {
-    synonymsSection = createDictionarySection(
-      'Synonyms', 
-      result.synonyms, 
-      '#66ffb2', // Light green color
-      (word, synonyms) => Array.isArray(synonyms) ? synonyms.join(', ') : synonyms // Join array with commas
-    );
-  }
-  
-  // Create examples section if enabled and available
-  let examplesSection = null;
-  if (features.showExamples && result.examples) {
-    examplesSection = createDictionarySection(
-      'Examples', 
-      result.examples, 
-      '#ff9966', // Light orange color
-      (word, examples) => {
-        if (!Array.isArray(examples)) return examples;
-        
-        // Create bullet points for multiple examples
-        const examplesList = document.createElement('ul');
-        examplesList.style.margin = '5px 0 0 20px';
-        examplesList.style.padding = '0';
-        
-        examples.forEach(example => {
-          const item = document.createElement('li');
-          item.textContent = example;
-          item.style.marginBottom = '4px';
-          examplesList.appendChild(item);
-        });
-        
-        return examplesList;
-      },
-      true // Process HTML elements
-    );
-  }
-  
-  // Add sections to content container
-  contentContainer.appendChild(originalElement);
-  contentContainer.appendChild(translationSection);
-  if (meaningsSection) contentContainer.appendChild(meaningsSection);
-  if (synonymsSection) contentContainer.appendChild(synonymsSection);
-  if (examplesSection) contentContainer.appendChild(examplesSection);
-  
-  // Assemble popup
-  translationPopup.appendChild(popupHeader);
+  copyContainer.appendChild(copyButton);
+  contentContainer.appendChild(copyContainer);
   translationPopup.appendChild(contentContainer);
   
-  // Add to the root element or document body
+  // Add the popup to the root element
   root.appendChild(translationPopup);
-  console.log("Enhanced translation popup added to document");
   
-  // Enable pointer events for the root during popup display
-  if (root.id === 'translator-root') {
-    root.style.pointerEvents = 'auto';
-  }
+  // Make sure the root element has correct pointer events
+  root.style.pointerEvents = 'auto';
   
-  // Ensure popup is fully visible within the viewport
-  ensurePopupVisibility(translationPopup);
-  
-  // Set up hover behavior
+  // Add hover behavior to prevent auto-removal
   setupPopupHoverBehavior(translationPopup);
   
-  // Start auto-remove timer (longer for enhanced popup since there's more content)
-  startAutoRemoveTimer(10000); // 10 seconds
+  // Start auto-removal timer with longer duration
+  startAutoRemoveTimer(12000); // Increase to 12 seconds
 }
 
-// Helper function to create dictionary sections (meanings, synonyms, examples)
-function createDictionarySection(title, dataObj, titleColor, formatFn, processHTML = false) {
+// Add smooth animations for collapsible sections
+function animateContentHeight(element, start, end, duration = 300) {
+  // Cancel any ongoing animation
+  if (element.__animation) {
+    cancelAnimationFrame(element.__animation);
+  }
+  
+  // For collapse animations, start with hidden overflow
+  if (end === 0) {
+    element.style.overflowY = 'hidden';
+  }
+  
+  const startTime = performance.now();
+  
+  function animate(currentTime) {
+    const elapsedTime = currentTime - startTime;
+    const progress = Math.min(elapsedTime / duration, 1);
+    
+    // Use different easing for expand vs collapse
+    let easedProgress;
+    if (end > start) {
+      // For expansion, use cubic ease-out
+      easedProgress = 1 - Math.pow(1 - progress, 3);
+    } else {
+      // For collapse, use cubic ease-in (faster at the end)
+      easedProgress = Math.pow(progress, 3);
+    }
+    
+    const height = start + (end - start) * easedProgress;
+    element.style.maxHeight = `${height}px`;
+    
+    if (progress < 1) {
+      element.__animation = requestAnimationFrame(animate);
+    } else {
+      element.__animation = null;
+      if (end === 0) {
+        element.style.display = 'none';
+        element.style.maxHeight = '0px'; // Ensure maxHeight is reset
+      } else {
+        // Only apply scrollbar at the end of expansion if needed
+        if (element.scrollHeight > element.clientHeight) {
+          element.style.overflowY = 'auto';
+        } else {
+          element.style.overflowY = 'hidden';
+        }
+      }
+    }
+  }
+  
+  if (end > 0 && element.style.display === 'none') {
+    element.style.display = 'block';
+    element.style.maxHeight = `${start}px`;
+    // Always start with overflow hidden for smooth animation
+    element.style.overflowY = 'hidden';
+  }
+  
+  element.__animation = requestAnimationFrame(animate);
+}
+
+// Helper function to create collapsible sections for translation popup
+function createCollapsibleSection(title, content, titleColor, initiallyExpanded = false, formatFn = null, processHTML = false) {
   // Create section container
   const section = document.createElement('div');
-  section.style.marginBottom = '16px';
+  section.style.marginBottom = '10px';
+  section.style.border = '1px solid #393e46';
+  section.style.borderRadius = '10px';
+  section.style.overflow = 'hidden';
+  section.style.transition = 'box-shadow 0.2s ease';
+  section.style.width = '100%'; // Ensure section takes full width of parent
   
-  // Create section header
+  // Add hover effect to section
+  section.onmouseover = function() {
+    this.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+  };
+  
+  section.onmouseout = function() {
+    this.style.boxShadow = 'none';
+  };
+  
+  // Create header for collapsible section
   const header = document.createElement('div');
-  header.textContent = title;
   header.style.fontWeight = 'bold';
   header.style.color = titleColor;
-  header.style.marginBottom = '8px';
+  header.style.padding = '10px 14px';
+  header.style.backgroundColor = '#2d3642';
   header.style.fontSize = '14px';
+  header.style.cursor = 'pointer';
+  header.style.display = 'flex';
+  header.style.justifyContent = 'space-between';
+  header.style.alignItems = 'center';
+  header.style.transition = 'background-color 0.2s ease';
+  header.style.userSelect = 'none'; // Prevent text selection when clicking
+  header.style.width = '100%'; // Ensure header takes full width
   
-  section.appendChild(header);
+  // Add hover effect to header
+  header.onmouseover = function() {
+    this.style.backgroundColor = '#333b47';
+  };
+  
+  header.onmouseout = function() {
+    this.style.backgroundColor = '#2d3642';
+  };
+  
+  // Create title span
+  const titleSpan = document.createElement('span');
+  titleSpan.textContent = title;
+  header.appendChild(titleSpan);
+  
+  // Add toggle indicator with better styling
+  const toggleIndicator = document.createElement('span');
+  toggleIndicator.textContent = initiallyExpanded ? '▼' : '►';
+  toggleIndicator.style.fontSize = '10px';
+  toggleIndicator.style.color = titleColor;
+  toggleIndicator.style.opacity = '0.8';
+  toggleIndicator.style.marginLeft = '8px';
+  toggleIndicator.style.transition = 'transform 0.3s ease';
+  toggleIndicator.style.display = 'inline-block';
+  
+  if (initiallyExpanded) {
+    toggleIndicator.style.transform = 'rotate(0deg)';
+  } else {
+    toggleIndicator.style.transform = 'rotate(0deg)';
+  }
+  header.appendChild(toggleIndicator);
   
   // Create content container
-  const content = document.createElement('div');
-  content.style.backgroundColor = '#2a2a2a';
-  content.style.border = '1px solid #444';
-  content.style.borderRadius = '6px';
-  content.style.padding = '10px';
+  const contentContainer = document.createElement('div');
+  contentContainer.style.padding = initiallyExpanded ? '12px 14px' : '0 14px';
+  contentContainer.style.backgroundColor = '#222831';
+  contentContainer.style.fontSize = '13px';
+  contentContainer.style.lineHeight = '1.4';
+  contentContainer.style.display = initiallyExpanded ? 'block' : 'none';
+  contentContainer.style.overflow = 'hidden';
+  contentContainer.style.maxHeight = initiallyExpanded ? '150px' : '0px';
+  contentContainer.style.width = '100%'; // Ensure content takes full width
+  contentContainer.style.boxSizing = 'border-box'; // Include padding in width calculation
   
-  // Process and add each item
-  const entries = Object.entries(dataObj);
+  // Process content based on type
+  if (typeof content === 'string') {
+    contentContainer.textContent = content;
+    // Only add overflow-y for longer content
+    if (content.length > 200) {
+      contentContainer.style.overflowY = 'auto';
+    }
+  } else if (content && typeof content === 'object') {
+    const entries = Object.entries(content);
   if (entries.length === 0) {
-    const emptyMsg = document.createElement('div');
-    emptyMsg.textContent = 'No data available';
-    emptyMsg.style.fontStyle = 'italic';
-    emptyMsg.style.color = '#888';
-    content.appendChild(emptyMsg);
+      contentContainer.textContent = 'No data available';
+      contentContainer.style.fontStyle = 'italic';
+      contentContainer.style.color = '#888';
   } else {
     entries.forEach(([word, data], index) => {
       const item = document.createElement('div');
       item.style.marginBottom = index < entries.length - 1 ? '8px' : '0';
+      item.style.padding = '4px 0';
+      item.style.borderBottom = index < entries.length - 1 ? '1px solid #393e46' : 'none';
+      item.style.width = '100%'; // Ensure item takes full width
+      item.style.boxSizing = 'border-box'; // Include padding in width calculation
+      item.style.display = 'flex'; // Use flex for better layout control
+      item.style.flexDirection = 'column'; // Stack content vertically
+      item.style.overflowWrap = 'break-word'; // Break long words
+      item.style.wordWrap = 'break-word'; // Fallback for older browsers
       
       const wordEl = document.createElement('span');
       wordEl.textContent = word;
       wordEl.style.fontWeight = 'bold';
-      wordEl.style.color = '#fff';
+      wordEl.style.color = '#00adb5';
+      wordEl.style.overflowWrap = 'break-word'; // Break long words
       
       const separator = document.createElement('span');
       separator.textContent = ': ';
       separator.style.color = '#888';
       
-      item.appendChild(wordEl);
-      item.appendChild(separator);
+      const wordWrapper = document.createElement('div');
+      wordWrapper.style.display = 'flex';
+      wordWrapper.style.flexWrap = 'wrap';
+      wordWrapper.appendChild(wordEl);
+      wordWrapper.appendChild(separator);
       
-      // Format the data based on the provided function
-      const formattedData = formatFn(word, data);
+      item.appendChild(wordWrapper);
       
-      if (processHTML && formattedData instanceof HTMLElement) {
-        item.appendChild(formattedData);
+      if (formatFn) {
+        const formattedData = formatFn(word, data);
+      
+        if (processHTML && formattedData instanceof HTMLElement) {
+          item.appendChild(formattedData);
+        } else {
+          // Check if the meaning contains both English and target language
+          if (typeof formattedData === 'string' && formattedData.includes(' + ')) {
+            const [englishMeaning, targetMeaning] = formattedData.split(' + ').map(s => s.trim());
+            
+            // Create container for dual meanings
+            const meaningsContainer = document.createElement('div');
+            meaningsContainer.style.display = 'flex';
+            meaningsContainer.style.flexDirection = 'column';
+            meaningsContainer.style.width = '100%';
+            meaningsContainer.style.overflowWrap = 'break-word';
+            
+            // English meaning
+            const englishEl = document.createElement('span');
+            englishEl.textContent = `🇬🇧 ${englishMeaning}`;
+            englishEl.style.color = '#dddddd';
+            englishEl.style.marginBottom = '4px';
+            englishEl.style.overflowWrap = 'break-word';
+            
+            // Target language meaning
+            const targetEl = document.createElement('span');
+            targetEl.textContent = `🌐 ${targetMeaning}`;
+            targetEl.style.color = '#00adb5';
+            targetEl.style.overflowWrap = 'break-word';
+            
+            meaningsContainer.appendChild(englishEl);
+            meaningsContainer.appendChild(targetEl);
+            item.appendChild(meaningsContainer);
+          } else {
+            // Regular meaning (fallback)
+            const dataEl = document.createElement('span');
+            dataEl.textContent = formattedData;
+            dataEl.style.color = '#dddddd';
+            dataEl.style.overflowWrap = 'break-word';
+            dataEl.style.wordWrap = 'break-word';
+            item.appendChild(dataEl);
+          }
+        }
       } else {
         const dataEl = document.createElement('span');
-        dataEl.textContent = formattedData;
-        dataEl.style.color = '#ddd';
+        dataEl.textContent = data;
+        dataEl.style.color = '#dddddd';
+        dataEl.style.overflowWrap = 'break-word';
+        dataEl.style.wordWrap = 'break-word';
         item.appendChild(dataEl);
       }
       
-      content.appendChild(item);
+      contentContainer.appendChild(item);
     });
+      
+    // Only add scrollbar if there are many entries
+    if (entries.length > 6) {
+      contentContainer.style.overflowY = 'auto';
+    }
+    }
   }
   
-  section.appendChild(content);
+  // Add toggle functionality with smooth animation
+  header.addEventListener('click', function() {
+    const isCollapsed = contentContainer.style.display === 'none' || contentContainer.style.maxHeight === '0px';
+    
+    if (isCollapsed) {
+      // Get content height for animation
+      contentContainer.style.display = 'block';
+      contentContainer.style.maxHeight = '0px';
+      contentContainer.style.padding = '0 14px';
+      
+      // Force layout calculation to enable animation
+      const fullContentHeight = contentContainer.scrollHeight;
+      const targetHeight = Math.min(fullContentHeight + 24, 200); // Increased height limit
+      
+      // Only show scrollbar if content would be taller than the allowed height
+      if (fullContentHeight + 24 > 200) {
+        contentContainer.style.overflowY = 'auto';
+      } else {
+        contentContainer.style.overflowY = 'hidden';
+      }
+      
+      // Animate the expansion
+      contentContainer.style.padding = '12px 14px';
+      animateContentHeight(contentContainer, 0, targetHeight);
+      
+      toggleIndicator.style.transform = 'rotate(180deg)';
+      toggleIndicator.textContent = '▼';
+    } else {
+      // Fix: Get current height BEFORE changing any styles
+      const currentHeight = contentContainer.offsetHeight;
+      
+      // Immediately hide scrollbar to prevent visible jumpiness
+      contentContainer.style.overflowY = 'hidden';
+      
+      // Animate the collapse directly from current visual height
+      animateContentHeight(contentContainer, currentHeight, 0);
+      contentContainer.style.padding = '0 14px';
+      
+      toggleIndicator.style.transform = 'rotate(0deg)';
+      toggleIndicator.textContent = '►';
+    }
+  });
+  
+  section.appendChild(header);
+  section.appendChild(contentContainer);
+  
   return section;
 }
 
@@ -505,36 +910,42 @@ function showTranslationPopup(original, translation) {
   translationPopup.className = 'en-bn-translation-popup';
   translationPopup.setAttribute('data-translator-popup', 'true');
   
-  // Style the popup with modern dark theme
+  // Style the popup with modern standardized theme
   translationPopup.style.position = 'fixed';
-  translationPopup.style.zIndex = '2147483647'; // Maximum z-index to ensure visibility
-  translationPopup.style.backgroundColor = '#1e1e1e';  // Dark background
-  translationPopup.style.border = '1px solid #333';
-  translationPopup.style.borderRadius = '10px';
-  translationPopup.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.3)';
-  translationPopup.style.padding = '16px';
-  translationPopup.style.maxWidth = '350px';
-  translationPopup.style.width = 'auto';  // Allow responsive sizing
-  translationPopup.style.fontSize = '14px';
-  translationPopup.style.top = (window.scrollY + 100) + 'px';
+  translationPopup.style.zIndex = '2147483647';
+  translationPopup.style.backgroundColor = '#222831';
+  translationPopup.style.border = '1px solid #393e46';
+  translationPopup.style.borderRadius = '12px';
+  translationPopup.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.3)';
+  translationPopup.style.padding = '14px';
+  translationPopup.style.width = '340px';
+  translationPopup.style.height = 'auto';
+  translationPopup.style.fontSize = '13px';
+  translationPopup.style.top = (window.scrollY + 70) + 'px';
   translationPopup.style.right = '20px';
-  translationPopup.style.transition = 'all 0.2s ease';
-  translationPopup.style.overflow = 'hidden';  // Prevent content overflow
-  translationPopup.style.color = '#fff';  // Base text color
-  translationPopup.style.pointerEvents = 'auto';  // Make sure it can receive events
+  translationPopup.style.transition = 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)';
+  translationPopup.style.overflow = 'hidden';
+  translationPopup.style.color = '#eeeeee';
+  translationPopup.style.pointerEvents = 'auto';
+  translationPopup.style.transform = 'translateY(10px)';
+  translationPopup.style.opacity = '0';
   
-  // Create header with title and close button
+  // Create header with title, language selector, and close button
   const popupHeader = document.createElement('div');
   popupHeader.style.display = 'flex';
   popupHeader.style.justifyContent = 'space-between';
   popupHeader.style.alignItems = 'center';
-  popupHeader.style.marginBottom = '12px';
+  popupHeader.style.marginBottom = '10px';
+  popupHeader.style.borderBottom = '1px solid #393e46';
+  popupHeader.style.paddingBottom = '10px';
   
+  // Create target language title
   const popupTitle = document.createElement('div');
-  popupTitle.textContent = 'English to Bangla';
+  popupTitle.textContent = targetLanguage;
   popupTitle.style.fontWeight = 'bold';
-  popupTitle.style.color = '#fff';  // White text
+  popupTitle.style.color = '#00adb5';
   popupTitle.style.fontSize = '16px';
+  popupTitle.style.letterSpacing = '0.5px';
   
   // Create close button
   const closeButton = document.createElement('button');
@@ -543,50 +954,69 @@ function showTranslationPopup(original, translation) {
   closeButton.style.background = 'none';
   closeButton.style.cursor = 'pointer';
   closeButton.style.fontSize = '16px';
-  closeButton.style.color = '#aaa';  // Light gray
-  closeButton.style.padding = '0 5px';
-  closeButton.style.transition = 'color 0.2s ease';
+  closeButton.style.color = '#aaa';
+  closeButton.style.padding = '4px 8px';
+  closeButton.style.transition = 'all 0.2s ease';
+  closeButton.style.borderRadius = '6px';
   closeButton.onclick = removeExistingPopup;
   
   // Add hover effect to close button
   closeButton.onmouseover = function() {
     this.style.color = '#fff';
+    this.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
   };
   closeButton.onmouseout = function() {
     this.style.color = '#aaa';
+    this.style.backgroundColor = 'transparent';
   };
   
   popupHeader.appendChild(popupTitle);
   popupHeader.appendChild(closeButton);
   
-  // Create original text element
-  const originalElement = document.createElement('div');
-  originalElement.style.marginBottom = '12px';
-  originalElement.style.color = '#ccc';  // Light gray text
-  originalElement.style.padding = '10px';
-  originalElement.style.backgroundColor = '#2a2a2a';  // Slightly lighter background
-  originalElement.style.border = '1px solid #444';
-  originalElement.style.borderRadius = '6px';
-  originalElement.style.wordWrap = 'break-word';  // Enable word wrapping
-  originalElement.style.overflowWrap = 'break-word';  // Handle long words
-  originalElement.style.maxHeight = '100px';  // Limit height for very long text
-  originalElement.style.overflowY = 'auto';  // Add scrollbar for overflow
-  originalElement.textContent = original;
+  // Create accordion for content
+  const accordion = document.createElement('div');
+  accordion.style.display = 'flex';
+  accordion.style.flexDirection = 'column';
+  accordion.style.gap = '10px';
+  
+  // Create original text as a collapsible section with detected language
+  const originalTitle = detectedLanguage ? `Original - ${detectedLanguage}` : 'Original';
+  const originalSection = createCollapsibleSection(originalTitle, original, '#00adb5', true);
+  accordion.appendChild(originalSection);
   
   // Create translation element
   const translationElement = document.createElement('div');
   translationElement.style.fontWeight = 'bold';
-  translationElement.style.color = '#66d9ff';  // Light blue for better visibility on dark background
-  translationElement.style.padding = '10px';
-  translationElement.style.backgroundColor = '#2a2a2a';
-  translationElement.style.border = '1px solid #444';
-  translationElement.style.borderRadius = '6px';
-  translationElement.style.fontSize = '16px';  // Slightly larger font for Bangla
-  translationElement.style.wordWrap = 'break-word';  // Enable word wrapping
-  translationElement.style.overflowWrap = 'break-word';  // Handle long words
-  translationElement.style.maxHeight = '150px';  // Limit height for very long translations
-  translationElement.style.overflowY = 'auto';  // Add scrollbar for overflow
+  translationElement.style.color = '#eeeeee';
+  translationElement.style.padding = '12px 14px';
+  translationElement.style.backgroundColor = '#2d3642';
+  translationElement.style.border = '1px solid #4a4f57';
+  translationElement.style.borderRadius = '10px';
+  translationElement.style.fontSize = '16px';
+  translationElement.style.wordWrap = 'break-word';
+  translationElement.style.overflowWrap = 'break-word';
+  translationElement.style.minHeight = '30px';
+  translationElement.style.maxHeight = '200px'; // Increased height
+  translationElement.style.overflow = 'hidden'; // Default to hidden
+  translationElement.style.transition = 'background-color 0.2s ease, max-height 0.3s ease';
+  translationElement.style.lineHeight = '1.5';
   translationElement.textContent = translation;
+  
+  // Only add scrollbar if content exceeds the container
+  setTimeout(() => {
+    if (translationElement.scrollHeight > translationElement.clientHeight) {
+      translationElement.style.overflowY = 'auto';
+    }
+  }, 50);
+  
+  // Add hover effect to translation element
+  translationElement.onmouseover = function() {
+    this.style.backgroundColor = '#333b47';
+  };
+  
+  translationElement.onmouseout = function() {
+    this.style.backgroundColor = '#2d3642';
+  };
   
   // Add copy button for translation
   const copyButtonContainer = document.createElement('div');
@@ -595,31 +1025,39 @@ function showTranslationPopup(original, translation) {
   
   const copyButton = document.createElement('button');
   copyButton.textContent = 'Copy';
-  copyButton.style.backgroundColor = '#444';
-  copyButton.style.color = '#fff';
+  copyButton.style.backgroundColor = '#2d3642';
+  copyButton.style.color = '#eeeeee';
   copyButton.style.border = 'none';
-  copyButton.style.borderRadius = '4px';
-  copyButton.style.padding = '4px 8px';
+  copyButton.style.borderRadius = '6px';
+  copyButton.style.padding = '6px 12px';
   copyButton.style.cursor = 'pointer';
   copyButton.style.fontSize = '12px';
-  copyButton.style.transition = 'background-color 0.2s';
+  copyButton.style.transition = 'all 0.2s ease';
+  copyButton.style.boxShadow = '0 2px 5px rgba(0, 0, 0, 0.1)';
   
   copyButton.onmouseover = function() {
-    this.style.backgroundColor = '#555';
+    this.style.backgroundColor = '#333b47';
+    this.style.transform = 'translateY(-1px)';
+    this.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.15)';
   };
   
   copyButton.onmouseout = function() {
-    this.style.backgroundColor = '#444';
+    this.style.backgroundColor = '#2d3642';
+    this.style.transform = 'translateY(0)';
+    this.style.boxShadow = '0 2px 5px rgba(0, 0, 0, 0.1)';
   };
   
   copyButton.onclick = function() {
     navigator.clipboard.writeText(translation).then(() => {
       const originalText = this.textContent;
       this.textContent = 'Copied!';
-      this.style.backgroundColor = '#2a6b4a';
+      this.style.backgroundColor = '#00adb5';
+      this.style.boxShadow = '0 4px 10px rgba(0, 173, 181, 0.3)';
+      
       setTimeout(() => {
         this.textContent = originalText;
-        this.style.backgroundColor = '#444';
+        this.style.backgroundColor = '#2d3642';
+        this.style.boxShadow = '0 2px 5px rgba(0, 0, 0, 0.1)';
       }, 1500);
     }).catch(err => {
       console.error('Failed to copy text: ', err);
@@ -628,30 +1066,130 @@ function showTranslationPopup(original, translation) {
   
   copyButtonContainer.appendChild(copyButton);
   
+  // Create translation container
+  const translationContainer = document.createElement('div');
+  translationContainer.style.marginBottom = '8px';
+  translationContainer.appendChild(translationElement);
+  translationContainer.appendChild(copyButtonContainer);
+  
+  // Add translation to accordion
+  accordion.appendChild(translationContainer);
+  
   // Assemble popup
   translationPopup.appendChild(popupHeader);
-  translationPopup.appendChild(originalElement);
-  translationPopup.appendChild(translationElement);
-  translationPopup.appendChild(copyButtonContainer);
+  translationPopup.appendChild(accordion);
   
   // Add to the root element or document body
   root.appendChild(translationPopup);
   console.log("Translation popup added to document");
-  
+
   // Enable pointer events for the root during popup display
   if (root.id === 'translator-root') {
     root.style.pointerEvents = 'auto';
   }
   
+  // Animate popup entry
+  setTimeout(() => {
+    translationPopup.style.transform = 'translateY(0)';
+    translationPopup.style.opacity = '1';
+  }, 10);
+
   // Ensure popup is fully visible within the viewport
   ensurePopupVisibility(translationPopup);
-  
+
   // Set up hover behavior
   setupPopupHoverBehavior(translationPopup);
-  
+
   // Start auto-remove timer
-  startAutoRemoveTimer();
+  startAutoRemoveTimer(6000); // 6 seconds
 }
+
+// Function to setup hover behavior
+function setupPopupHoverBehavior(popup) {
+  popup.addEventListener('mouseenter', function() {
+    console.log("Mouse entered popup - canceling auto-remove");
+    // Cancel auto-remove when mouse enters popup
+    if (autoRemoveTimeout) {
+      clearTimeout(autoRemoveTimeout);
+      autoRemoveTimeout = null;
+    }
+    
+    // Add enhanced highlight and elevation effect
+    popup.style.boxShadow = '0 10px 30px rgba(0, 173, 181, 0.25)';
+    popup.style.transform = 'translateY(-2px)';
+    popup.style.border = '1px solid #00adb5';
+    
+    // Don't use animation as it might interfere with visibility
+    popup.style.animation = 'none';
+  });
+
+  popup.addEventListener('mouseleave', function() {
+    console.log("Mouse left popup - starting auto-remove timer");
+    // Start a fresh auto-remove timer when mouse leaves popup
+    // Use a longer timeout for better user experience
+    startAutoRemoveTimer(10000); // 10 seconds after mouse leaves
+
+    // Remove highlight and elevation effects
+    popup.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.3)';
+    popup.style.transform = 'translateY(0)';
+    popup.style.border = popup.style.border.includes('f44336') ? 
+      '1px solid #f44336' : '1px solid #393e46';
+    popup.style.animation = 'none';
+  });
+}
+
+// Function to start auto-remove timer
+function startAutoRemoveTimer(customTimeout = 10000) { // Increase default to 10 seconds
+  // Clear any existing timer first
+  if (autoRemoveTimeout) {
+    clearTimeout(autoRemoveTimeout);
+    autoRemoveTimeout = null;
+  }
+
+  // Set new timer
+  autoRemoveTimeout = setTimeout(function() {
+    removeExistingPopup();
+  }, customTimeout);
+  
+  console.log(`Auto-remove timer started - popup will disappear in ${customTimeout/1000} seconds`);
+}
+
+// Function to remove existing popup
+function removeExistingPopup() {
+  if (translationPopup) {
+    // Don't animate out, just remove immediately if we're having issues with visibility
+    if (translationPopup && translationPopup.parentNode) {
+      translationPopup.parentNode.removeChild(translationPopup);
+    }
+    translationPopup = null;
+    
+    // Clear any auto-remove timeout
+    if (autoRemoveTimeout) {
+      clearTimeout(autoRemoveTimeout);
+      autoRemoveTimeout = null;
+    }
+  }
+}
+
+// Initialize once the DOM is loaded
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initialize);
+} else {
+  // DOM already loaded, initialize immediately
+  initialize();
+}
+
+// For websites that dynamically load content (like Facebook, YouTube)
+// Re-check periodically if our script is working
+setInterval(() => {
+  // If our translator root doesn't exist, we need to re-initialize
+  if (!document.getElementById('translator-root') && document.body) {
+    console.log("Re-initializing translator due to DOM changes");
+    initialize();
+  }
+}, 3000);
+
+console.log("Universal Translator content script loaded in frame:", window.location.href);
 
 // Function to ensure popup is fully visible within viewport
 function ensurePopupVisibility(popup) {
@@ -660,284 +1198,268 @@ function ensurePopupVisibility(popup) {
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   
+  // Calculate the popup's width - use fixed width for consistency
+  const popupWidth = 340; // Updated to match our standard width
+  const popupHeight = popupRect.height;
+  
   // Check if popup extends beyond right edge
   if (popupRect.right > viewportWidth) {
-    popup.style.right = '20px';
-    popup.style.left = 'auto';
+    const rightOffset = Math.max(20, viewportWidth - popupWidth - 20);
+    popup.style.right = rightOffset + 'px';
+  }
+  
+  // Check if popup extends beyond left edge
+  if (popupRect.left < 20) {
+    popup.style.right = (viewportWidth - popupWidth - 20) + 'px';
   }
   
   // Check if popup extends beyond bottom edge
   if (popupRect.bottom > viewportHeight) {
-    popup.style.top = Math.max((window.scrollY + viewportHeight - popupRect.height - 20), window.scrollY) + 'px';
+    popup.style.top = Math.max((window.scrollY + viewportHeight - popupHeight - 20), window.scrollY + 20) + 'px';
   }
   
   // Check if popup extends beyond top edge
   if (popupRect.top < 0) {
     popup.style.top = (window.scrollY + 20) + 'px';
   }
+  
+  // Ensure enough space is reserved for animation effects
+  if (popupRect.top < 20) {
+    popup.style.top = (window.scrollY + 20) + 'px';
+  }
+  
+  // Make sure popup is not too close to right edge to accommodate animation
+  if (viewportWidth - popupRect.right < 20) {
+    popup.style.right = '20px';
+  }
 }
 
 // Function to show error popup
 function showErrorPopup(errorMessage) {
-  console.log("Creating error popup");
-  // Remove existing popup if there is one
+  // Remove any existing popup
   removeExistingPopup();
   
-  // Get the root element
-  const root = document.getElementById('translator-root') || document.body;
+  // Check if we have the root element, create it if not
+  let root = document.getElementById('translator-root');
+  if (!root) {
+    createRootElement();
+    root = document.getElementById('translator-root');
+  }
   
-  // Create popup element
+  // Create the popup container
   translationPopup = document.createElement('div');
-  translationPopup.className = 'en-bn-translation-error';
-  translationPopup.setAttribute('data-translator-popup', 'true');
+  translationPopup.dataset.translatorPopup = "true";
   
-  // Style the popup with modern dark theme
+  // Set fixed position styles - always positioned at top right with slight indent
   translationPopup.style.position = 'fixed';
-  translationPopup.style.zIndex = '2147483647'; // Maximum z-index to ensure visibility
-  translationPopup.style.backgroundColor = '#1e1e1e';  // Dark background
-  translationPopup.style.border = '1px solid #ff4444';  // Red border for error
-  translationPopup.style.borderRadius = '10px';
+  translationPopup.style.top = '100px'; // Fixed position from top
+  translationPopup.style.right = '20px'; // Fixed position from right
+  translationPopup.style.width = '350px'; // Set a fixed width matching enhanced popup
+  translationPopup.style.minWidth = '350px'; // Enforce minimum width
+  translationPopup.style.maxWidth = '350px'; // Enforce maximum width
+  translationPopup.style.backgroundColor = '#222831';
+  translationPopup.style.color = '#eeeeee';
+  translationPopup.style.borderRadius = '12px';
   translationPopup.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.3)';
-  translationPopup.style.padding = '16px';
-  translationPopup.style.maxWidth = '350px';
+  translationPopup.style.fontFamily = 'Arial, sans-serif';
   translationPopup.style.fontSize = '14px';
-  translationPopup.style.top = (window.scrollY + 100) + 'px';
-  translationPopup.style.right = '20px';
-  translationPopup.style.wordWrap = 'break-word';  // Enable word wrapping
-  translationPopup.style.color = '#fff';  // Base text color
-  translationPopup.style.pointerEvents = 'auto';  // Make sure it can receive events
+  translationPopup.style.zIndex = '2147483647';
+  translationPopup.style.pointerEvents = 'auto';
+  translationPopup.style.opacity = '1';
+  translationPopup.style.transform = 'translateY(0)';
+  translationPopup.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+  translationPopup.style.border = '1px solid #f44336';
+  translationPopup.style.boxSizing = 'border-box'; // Ensure padding is included in width
   
-  // Create header with title and close button
-  const popupHeader = document.createElement('div');
-  popupHeader.style.display = 'flex';
-  popupHeader.style.justifyContent = 'space-between';
-  popupHeader.style.alignItems = 'center';
-  popupHeader.style.marginBottom = '12px';
+  // Create header with error title and close button
+  const header = document.createElement('div');
+  header.style.display = 'flex';
+  header.style.justifyContent = 'space-between';
+  header.style.alignItems = 'center';
+  header.style.padding = '10px 15px';
+  header.style.borderBottom = '1px solid #393e46';
+  header.style.backgroundColor = '#1f252d';
+  header.style.borderTopLeftRadius = '12px';
+  header.style.borderTopRightRadius = '12px';
+  header.style.width = '100%'; // Ensure header takes full width
+  header.style.boxSizing = 'border-box'; // Include padding in width calculation
   
-  const popupTitle = document.createElement('div');
-  popupTitle.textContent = 'Translation Error';
-  popupTitle.style.fontWeight = 'bold';
-  popupTitle.style.color = '#ff6666';  // Light red for error
+  // Add title
+  const titleSpan = document.createElement('div');
+  titleSpan.textContent = 'Translator Error';
+  titleSpan.style.fontWeight = 'bold';
+  titleSpan.style.color = '#f44336';
   
   // Create close button
-  const closeButton = document.createElement('button');
-  closeButton.textContent = '✕';
-  closeButton.style.border = 'none';
-  closeButton.style.background = 'none';
+  const closeButton = document.createElement('div');
+  closeButton.innerHTML = '&times;';
   closeButton.style.cursor = 'pointer';
-  closeButton.style.fontSize = '16px';
-  closeButton.style.color = '#ff6666';
-  closeButton.style.padding = '0 5px';
-  closeButton.onclick = removeExistingPopup;
+  closeButton.style.fontSize = '20px';
+  closeButton.style.color = '#aaaaaa';
+  closeButton.style.transition = 'color 0.2s';
   
-  popupHeader.appendChild(popupTitle);
-  popupHeader.appendChild(closeButton);
-  
-  // Create error message element
-  const errorElement = document.createElement('div');
-  errorElement.textContent = errorMessage;
-  errorElement.style.color = '#ff9999';  // Lighter red for error text
-  errorElement.style.wordWrap = 'break-word';  // Enable word wrapping
-  
-  // Assemble popup
-  translationPopup.appendChild(popupHeader);
-  translationPopup.appendChild(errorElement);
-
-  
-  // Add to the root element or document body
-
-  root.appendChild(translationPopup);
-
-  console.log("Error popup added to document");
-
-  
-
-  // Enable pointer events for the root during popup display
-
-  if (root.id === 'translator-root') {
-
-    root.style.pointerEvents = 'auto';
-
-  }
-
-  
-
-  // Ensure popup is fully visible within the viewport
-
-  ensurePopupVisibility(translationPopup);
-
-  
-
-  // Set up hover behavior
-
-  setupPopupHoverBehavior(translationPopup);
-
-  
-
-  // Start auto-remove timer
-
-  startAutoRemoveTimer();
-
-}
-
-
-
-// Function to setup hover behavior
-
-function setupPopupHoverBehavior(popup) {
-
-  popup.addEventListener('mouseenter', function() {
-
-    console.log("Mouse entered popup - canceling auto-remove");
-
-    // Cancel auto-remove when mouse enters popup
-
-    if (autoRemoveTimeout) {
-
-      clearTimeout(autoRemoveTimeout);
-
-      autoRemoveTimeout = null;
-
-    }
-
-    
-
-    // Add subtle highlight effect
-
-    popup.style.boxShadow = '0 6px 25px rgba(102, 217, 255, 0.2)';
-
+  // Hover effect for close button
+  closeButton.addEventListener('mouseover', () => {
+    closeButton.style.color = '#ffffff';
   });
-
   
-
-  popup.addEventListener('mouseleave', function() {
-
-    console.log("Mouse left popup - starting auto-remove timer");
-
-    // Start a fresh auto-remove timer when mouse leaves popup
-
-    startAutoRemoveTimer();
-
-    
-
-    // Remove highlight effect
-
-    popup.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.3)';
-
+  closeButton.addEventListener('mouseout', () => {
+    closeButton.style.color = '#aaaaaa';
   });
-
-}
-
-
-
-// Function to start auto-remove timer
-
-function startAutoRemoveTimer() {
-
-  // Clear any existing timer first
-
-  if (autoRemoveTimeout) {
-
-    clearTimeout(autoRemoveTimeout);
-
-    autoRemoveTimeout = null;
-
-  }
-
   
-
-  // Set new timer
-
-  autoRemoveTimeout = setTimeout(function() {
-
+  // Close popup when button is clicked
+  closeButton.addEventListener('click', () => {
     removeExistingPopup();
-
-  }, 5000); // 5 seconds
-
+  });
   
-
-  console.log("Auto-remove timer started - popup will disappear in 5 seconds");
-
+  header.appendChild(titleSpan);
+  header.appendChild(closeButton);
+  translationPopup.appendChild(header);
+  
+  // Content container
+  const contentContainer = document.createElement('div');
+  contentContainer.style.padding = '15px';
+  contentContainer.style.width = '100%'; // Ensure content container takes full width
+  contentContainer.style.boxSizing = 'border-box'; // Include padding in width calculation
+  
+  // Warning icon
+  const warningContainer = document.createElement('div');
+  warningContainer.style.display = 'flex';
+  warningContainer.style.alignItems = 'center';
+  warningContainer.style.marginBottom = '10px';
+  
+  const warningIcon = document.createElement('div');
+  warningIcon.innerHTML = '⚠️';
+  warningIcon.style.marginRight = '8px';
+  warningIcon.style.fontSize = '18px';
+  
+  const warningText = document.createElement('div');
+  warningText.textContent = 'Something went wrong';
+  warningText.style.color = '#f44336';
+  
+  warningContainer.appendChild(warningIcon);
+  warningContainer.appendChild(warningText);
+  contentContainer.appendChild(warningContainer);
+  
+  // Error message
+  const errorContainer = document.createElement('div');
+  errorContainer.style.backgroundColor = '#2d333d';
+  errorContainer.style.padding = '12px';
+  errorContainer.style.borderRadius = '6px';
+  errorContainer.style.color = '#f48fb1';
+  errorContainer.textContent = errorMessage;
+  errorContainer.style.overflowWrap = 'break-word'; // Break long words
+  errorContainer.style.wordWrap = 'break-word'; // For older browsers
+  contentContainer.appendChild(errorContainer);
+  
+  translationPopup.appendChild(contentContainer);
+  
+  // Add the popup to the root element
+  root.appendChild(translationPopup);
+  
+  // Make sure the root element has correct pointer events
+  root.style.pointerEvents = 'auto';
+  
+  // Add hover behavior to prevent auto-removal
+  setupPopupHoverBehavior(translationPopup);
+  
+  // Start auto-removal timer with even longer duration for errors
+  startAutoRemoveTimer(15000); // Increase to 15 seconds for errors
 }
 
-
-
-// Function to remove existing popup
-
-function removeExistingPopup() {
-
-  if (translationPopup && translationPopup.parentNode) {
-
-    translationPopup.parentNode.removeChild(translationPopup);
-
-    translationPopup = null;
-
-    console.log("Popup removed");
-
-    
-
-    // Disable pointer events for the root when no popup is displayed
-
-    const root = document.getElementById('translator-root');
-
-    if (root) {
-
-      root.style.pointerEvents = 'none';
-
+// Add a new function to set up connection monitoring
+function setupConnectionMonitoring() {
+  // Cancel any existing interval
+  if (connectionCheckInterval) {
+    clearInterval(connectionCheckInterval);
+  }
+  
+  // Start monitoring connection every 30 seconds
+  connectionCheckInterval = setInterval(() => {
+    // If it's been more than 5 minutes since last activity, check connection
+    const timeSinceLastActivity = Date.now() - lastActivityTime;
+    if (timeSinceLastActivity > 5 * 60 * 1000) { // 5 minutes
+      console.log("Checking extension connection after inactivity...");
+      checkConnection();
     }
-
-  }
-
+  }, 30000); // Check every 30 seconds
   
-
-  // Clear any existing timer
-
-  if (autoRemoveTimeout) {
-
-    clearTimeout(autoRemoveTimeout);
-
-    autoRemoveTimeout = null;
-
-  }
-
+  // Also set up a ping every 2 minutes to keep the connection alive
+  setInterval(() => {
+    pingBackgroundScript();
+  }, 2 * 60 * 1000); // 2 minutes
 }
 
-
-
-// Initialize once the DOM is loaded
-
-if (document.readyState === 'loading') {
-
-  document.addEventListener('DOMContentLoaded', initialize);
-
-} else {
-
-  // DOM already loaded, initialize immediately
-
-  initialize();
-
+// Function to check connection to background script
+function checkConnection() {
+  browser.runtime.sendMessage({ action: "ping" })
+    .then(response => {
+      console.log("Connection check successful:", response);
+      isConnectionActive = true;
+    })
+    .catch(error => {
+      console.log("Connection check failed:", error);
+      isConnectionActive = false;
+      
+      // Try to re-establish connection
+      console.log("Attempting to re-establish connection...");
+      reconnectToBackgroundScript();
+    });
 }
 
+// Function to ping the background script to keep connection alive
+function pingBackgroundScript() {
+  browser.runtime.sendMessage({ action: "ping" })
+    .then(response => {
+      // Connection is still active, update last activity time
+      lastActivityTime = Date.now();
+      isConnectionActive = true;
+    })
+    .catch(error => {
+      // Don't update connection state here to avoid false positives
+    });
+}
 
+// Function to attempt reconnection to background script
+function reconnectToBackgroundScript() {
+  // Reload preferences to ensure we have up-to-date settings
+  loadUserPreferencesWithRetry(0, 3);
+  
+  // Perform a test translation request to wake up the background script
+  browser.runtime.sendMessage({ 
+    action: "wakeup",
+    timestamp: Date.now()
+  }).then(response => {
+    console.log("Successfully reconnected to background script");
+    isConnectionActive = true;
+    lastActivityTime = Date.now();
+  }).catch(error => {
+    console.log("Reconnection attempt failed:", error);
+    // Will try again on next user interaction
+  });
+}
 
-// For websites that dynamically load content (like Facebook, YouTube)
-
-// Re-check periodically if our script is working
-
-setInterval(() => {
-
-  // If our translator root doesn't exist, we need to re-initialize
-
-  if (!document.getElementById('translator-root') && document.body) {
-
-    console.log("Re-initializing translator due to DOM changes");
-
-    initialize();
-
-  }
-
-}, 3000);
-
-
-
-console.log("English to Bangla Translator content script loaded in frame:", window.location.href);
+// Add a helper function to send translation requests
+function sendTranslationRequest(text, targetLang) {
+  // Send the selected text to the background script for translation
+  browser.runtime.sendMessage({
+    action: "translateSelection",
+    text: text,
+    targetLanguage: targetLang
+  }).then(response => {
+    // If we get a response, update connection status
+    isConnectionActive = true;
+    lastActivityTime = Date.now();
+  }).catch(err => {
+    console.error("Error sending message to background script:", err);
+    isConnectionActive = false;
+    
+    // Show a user-friendly error if the translation fails
+    if (err.message && err.message.includes("could not establish connection")) {
+      showErrorPopup("Connection to translator service was lost. Please try again.");
+      
+      // Attempt reconnection for next time
+      reconnectToBackgroundScript();
+    }
+  });
+}

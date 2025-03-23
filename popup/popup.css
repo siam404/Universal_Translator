@@ -1,83 +1,723 @@
 /* popup/popup.css */
 body {
-  font-family: Arial, sans-serif;
-  width: 350px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   margin: 0;
-  padding: 16px;
+  padding: 0;
+  background-color: #222831;
+  color: #eeeeee;
+  overflow: hidden;
+  width: 300px;
+  max-height: 600px;
 }
 
 .container {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  width: 100%;
+  padding: 10px;
+  box-sizing: border-box;
 }
 
 h1 {
-  font-size: 18px;
+  font-size: 17px;
+  color: #00adb5;
+  margin-top: 0;
+  margin-bottom: 12px;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+h2 {
+  font-size: 16px;
+  color: #00adb5;
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+/* Help button styles */
+.help-button-container {
+  margin: 10px 0 6px 0;
+  text-align: center;
+  position: relative;
+  z-index: 5;
+}
+
+.help-button {
+  background-color: #00838f;
+  color: white;
+  border: none;
+  padding: 7px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  width: auto;
+  max-width: 240px;
+  text-decoration: none;
+}
+
+.help-button::before {
+  content: "🔑";
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+.help-button:hover {
+  background-color: #00989e;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  color: white;
+  text-decoration: none;
+}
+
+.help-button:active {
+  transform: translateY(1px);
+  background-color: #00696e;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Modal styles with enhanced step details */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 999;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
+  animation: fadeIn 0.3s;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-content {
+  background-color: #2d3642;
+  margin: 10% auto;
+  width: 90%;
+  max-width: 500px;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+  animation: slideIn 0.3s;
+  overflow: hidden;
+}
+
+@keyframes slideIn {
+  from { transform: translateY(-30px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.modal-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #393e46;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #222831;
+}
+
+.modal-header h2 {
   margin: 0;
-  color: #333;
+  font-size: 18px;
+  color: #00adb5;
+}
+
+.close-modal {
+  color: #aaa;
+  font-size: 24px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.close-modal:hover {
+  color: #fff;
+}
+
+.modal-body {
+  padding: 16px;
+}
+
+.api-steps {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.api-steps ol {
+  margin: 12px 0;
+  padding-left: 25px;
+  counter-reset: step-counter;
+  list-style-type: none;
+}
+
+.api-steps li {
+  margin-bottom: 14px;
+  position: relative;
+  padding-left: 10px;
+  counter-increment: step-counter;
+}
+
+.api-steps li::before {
+  content: counter(step-counter);
+  position: absolute;
+  left: -25px;
+  top: 0;
+  background-color: #00adb5;
+  color: white;
+  font-weight: bold;
+  font-size: 12px;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.step-detail {
+  font-size: 12px;
+  color: #aaaaaa;
+  margin-top: 3px;
+  margin-left: 2px;
+  font-style: italic;
+}
+
+.api-key-link-container {
+  margin: 24px 0 16px;
+  text-align: center;
+}
+
+.api-key-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #00adb5;
+  color: white;
+  text-decoration: none;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-weight: bold;
+  transition: all 0.2s ease;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+  width: 80%;
+  max-width: 280px;
+}
+
+.api-key-link:hover {
+  background-color: #00c2cf;
+  transform: translateY(-2px);
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.4);
+}
+
+.link-icon {
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+.external-icon {
+  margin-left: 8px;
+  font-size: 14px;
+}
+
+.security-note {
+  background-color: #222831;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 15px;
+  border-left: 3px solid #00adb5;
+}
+
+.security-note p {
+  margin: 0;
+  font-size: 13px;
+  color: #ccc;
 }
 
 .form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* Special styling for the API key section */
+.api-key-section {
+  position: relative;
+  border: 1px solid #393e46;
+  border-radius: 8px;
+  padding: 10px;
+  background-color: #262d36;
+  margin-bottom: 10px;
+}
+
+.api-key-section input {
+  margin-bottom: 8px;
+}
+
+.api-key-section button {
+  background-color: #00adb5;
+  margin-bottom: 8px;
+}
+
+.api-key-section .status {
+  margin-top: 8px;
+  font-size: 13px;
+  text-align: center;
+  color: #cccccc;
+  border-top: 1px solid #393e46;
+  padding-top: 6px;
+}
+
+/* Special styling for settings sections */
+.settings-section {
+  position: relative;
+  border: 1px solid #393e46;
+  border-radius: 8px;
+  padding: 10px;
+  background-color: #262d36;
+  margin-bottom: 10px;
+}
+
+/* Special styling for the hotkeys section */
+.hotkeys-section {
+  position: relative;
+  border: 1px solid #393e46;
+  border-radius: 8px;
+  padding: 10px;
+  background-color: #262d36;
+  margin-bottom: 10px;
+}
+
+.instant-update-hint {
+  font-size: 11px;
+  color: #00adb5;
+  margin-top: 4px;
+  font-style: italic;
+  opacity: 0.8;
 }
 
 label {
-  font-weight: bold;
+  display: block;
+  margin-bottom: 5px;
+  color: #cccccc;
+  font-size: 13px;
 }
 
 input[type="text"] {
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #393e46;
+  border-radius: 6px;
+  background-color: #2d3642;
+  color: #eeeeee;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: #00adb5;
+  box-shadow: 0 0 0 2px rgba(0, 173, 181, 0.25);
+}
+
+select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #393e46;
+  border-radius: 6px;
+  background-color: #2d3642;
+  color: #eeeeee;
+  font-size: 13px;
+  box-sizing: border-box;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23aaaaaa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 14px;
+}
+
+select:focus {
+  outline: none;
+  border-color: #00adb5;
+  box-shadow: 0 0 0 2px rgba(0, 173, 181, 0.25);
 }
 
 .checkbox-group {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  margin-top: 6px;
 }
 
 .checkbox-group label {
-  font-weight: normal;
   display: flex;
   align-items: center;
-  gap: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+input[type="checkbox"] {
+  margin-right: 8px;
+  width: 16px;
+  height: 16px;
+  accent-color: #00adb5;
 }
 
 button {
-  padding: 8px 16px;
-  background-color: #0060df;
-  color: white;
+  width: 100%;
+  padding: 8px;
+  background-color: #00adb5;
+  color: #ffffff;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: bold;
   cursor: pointer;
-  align-self: flex-start;
+  transition: background-color 0.2s, transform 0.1s;
+  letter-spacing: 0.5px;
 }
 
 button:hover {
-  background-color: #003eaa;
+  background-color: #00c2cf;
 }
 
-.status {
-  padding: 8px;
-  background-color: #f5f5f5;
-  border-radius: 4px;
+button:active {
+  transform: translateY(1px);
+  background-color: #00969d;
 }
 
 .instructions {
-  border-top: 1px solid #ccc;
+  margin-top: 20px;
+  border-top: 1px solid #393e46;
   padding-top: 16px;
-}
-
-.instructions h2 {
-  font-size: 16px;
-  margin: 0 0 8px 0;
 }
 
 .instructions ol {
   margin: 0;
   padding-left: 20px;
+}
+
+.instructions li {
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #cccccc;
+  line-height: 1.4;
+}
+
+/* Toggle switch styles */
+.switch-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #cccccc;
+  cursor: pointer;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 22px;
+  margin-left: 8px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #393e46;
+  transition: .3s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background-color: #eeeeee;
+  transition: .3s;
+}
+
+input:checked + .slider {
+  background-color: #00adb5;
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px #00adb5;
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+.slider.round {
+  border-radius: 24px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
+/* Hotkeys info section */
+.hotkeys-info {
+  background-color: #2d3642;
+  border-radius: 6px;
+  padding: 10px;
+  margin-top: 8px;
+  border: 1px solid #393e46;
+}
+
+.hotkeys-info p {
+  margin: 0 0 10px 0;
+  font-size: 12px;
+  color: #aaaaaa;
+  line-height: 1.4;
+}
+
+.hotkey-config {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+}
+
+.hotkey-config label {
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #eeeeee;
+}
+
+.hotkey-input-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.hotkey-input-container select {
+  flex: 1;
+  background-color: #2d3642;
+  color: white;
+  border: 1px solid #393e46;
+  border-radius: 4px;
+  padding: 5px 6px;
+  min-width: 60px;
+  font-size: 12px;
+}
+
+.hotkey-input-container span {
+  font-weight: bold;
+  color: #888;
+  font-size: 11px;
+}
+
+/* Add styles for the current hotkey indicator button */
+.current-hotkey-container {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hotkey-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.current-hotkey-label {
+  font-size: 12px;
+  color: #cccccc;
+}
+
+.current-hotkey-button {
+  background-color: #2d3642;
+  color: #ffffff;
+  border-radius: 6px;
+  padding: 5px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  border: 1px solid #393e46;
+  transition: all 0.2s ease;
+  position: relative;
+  min-width: 70px;
+  font-size: 12px;
+}
+
+.current-hotkey-button:hover {
+  background-color: #3a4656;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.edit-icon {
+  font-size: 11px;
+  margin-left: 5px;
+  opacity: 0.7;
+  color: #00adb5;
+}
+
+.current-hotkey-button:hover .edit-icon {
+  opacity: 1;
+}
+
+/* Hotkey editor styling */
+.hotkey-editor {
+  background-color: #1f252d;
+  border-radius: 6px;
+  padding: 8px;
+  margin-top: 4px;
+  border: 1px solid #393e46;
+  animation: fadeIn 0.2s ease;
+  position: relative;
+  z-index: 10;
+}
+
+.editor-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.save-hotkey-button, .cancel-hotkey-button {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 11px;
+}
+
+.save-hotkey-button {
+  background-color: #00adb5;
+  color: white;
+  border: none;
+  width: 100%;
+  padding: 6px 10px;
+}
+
+.save-hotkey-button:hover {
+  background-color: #00c2cf;
+}
+
+.cancel-hotkey-button {
+  display: none;
+}
+
+/* Update hotkey configuration styles */
+.hotkey-config {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background-color: #1f252d;
+  border-radius: 8px;
+}
+
+.save-hotkey-button {
+  background-color: #00adb5;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s ease;
+  margin-left: auto;
+}
+
+.save-hotkey-button:hover {
+  background-color: #00c2cf;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.save-hotkey-button:active {
+  transform: translateY(0);
+}
+
+/* Improve select boxes */
+#hotkeyModifier, #hotkeyKey {
+  background-color: #2d3642;
+  color: white;
+  border: 1px solid #393e46;
+  border-radius: 4px;
+  padding: 4px 8px;
+  min-width: 70px;
+}
+
+#hotkeyModifier:focus, #hotkeyKey:focus {
+  outline: none;
+  border-color: #00adb5;
+}
+
+.hotkey-input-container {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.hotkey-input-container span {
+  font-weight: bold;
+  color: #888;
+}
+
+/* Hotkey info text */
+.hotkey-info-text {
+  font-size: 11px;
+  color: #aaaaaa;
+  text-align: center;
+  margin: 8px 0 5px;
+  font-style: italic;
+}
+
+/* Prevent text selection throughout the popup */
+body, 
+.container,
+h1, 
+label, 
+.toggle-switch,
+.hotkey-display,
+.current-hotkey-button,
+.hotkey-info-text,
+.help-button-container,
+.help-button,
+.status,
+button,
+p,
+.save-hotkey-button,
+.editor-buttons,
+.hotkey-input-container,
+.form-group,
+.settings-section,
+.switch-label {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Allow selection in the API key input only */
+#geminiApiKey {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
 }
