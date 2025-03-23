@@ -127,9 +127,9 @@ Universal Translator respects your privacy:
 ## Acknowledgments
 
 - Powered by Google's Gemini AI
-- Icons provided by [Your Icon Source]
+- Icons provided by [Flaticon](https://www.flaticon.com)
 - Special thanks to all beta testers!
 
 ---
 
-For support or feature requests, please [create an issue](YOUR_GITHUB_REPO_LINK_HERE) on our GitHub repository. 
+For support or feature requests, please [create an issue](https://github.com/siam404/Universal_Translator.git) on our GitHub repository. 
