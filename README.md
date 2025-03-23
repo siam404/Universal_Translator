@@ -2,7 +2,7 @@
 
 A powerful browser extension that provides instant translation of selected text with advanced features including word meanings, language detection, and customizable hotkeys.
 
-![Universal Translator Logo](![Image](https://github.com/user-attachments/assets/d8f97b04-d15d-4051-9c44-5e6d99419ec1))
+![Universal Translator Logo](https://github.com/user-attachments/assets/d8f97b04-d15d-4051-9c44-5e6d99419ec1)
 
 ## Installation
 
