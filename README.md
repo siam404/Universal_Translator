@@ -10,7 +10,7 @@ A powerful browser extension that provides instant translation of selected text 
 [Add to Chrome](YOUR_CHROME_STORE_LINK_HERE)
 
 ### Firefox
-[Add to Firefox](YOUR_FIREFOX_STORE_LINK_HERE)
+[Add to Firefox](https://addons.mozilla.org/en-US/firefox/addon/universal-translator)
 
 ## Features
 
@@ -47,7 +47,7 @@ Translate to any of these supported languages:
 - Customize your preferred key combination:
   - Modifier keys: Ctrl or Shift
   - Action keys: T, R, D, F, C, Space, or Q
-- Recommended hotkey: Shift+D (easy to press)
+- Recommended hotkey: Shift+d or Shift+f (easy to press)
 - Default hotkey: Shift+T
 
 ### 🔒 Privacy First
